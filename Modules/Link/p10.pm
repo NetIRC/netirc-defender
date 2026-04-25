@@ -24,10 +24,8 @@ my %rnickhash = ();
 my %serverids = ();
 my %info_channels_seen = ();
 my %info_chans_by_server = ();
-# lc(nick) => { lc(chan) => chan_display } — maintained from P10 J/C/L/B and cleared on QUIT.
 my %user_chans = ();
 
-# P10 "base64" for N-line IPv4 is ircu's 6-bit alphabet (see doc/p10.txt), NOT RFC MIME Base64.
 my %P10_B64;
 {
 	my @alph = split //, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789[]';
@@ -36,7 +34,6 @@ my %P10_B64;
 	}
 }
 
-# Decode P10 base64 token (typically 6 chars for IPv4) to dotted IPv4, same algorithm as ircu base64toint().
 sub _p10_n_ip_token_to_dotted {
 	my ($tok) = @_;
 	return undef unless defined $tok && $tok ne '';
@@ -67,8 +64,6 @@ sub _p10_n_ip_token_to_dotted {
 	return undef;
 }
 
-# Optional $chan_pfx: @ % + from burst (e.g. numnick:o). Empty join from J does not
-# overwrite an existing burst entry that already has a status prefix.
 sub _uc_join {
 	my ($nick_plain, $chan_plain, $chan_pfx) = @_;
 	return unless defined $nick_plain && $nick_plain ne '';
@@ -111,11 +106,16 @@ sub _uc_nick_change {
 	$user_chans{ lc $new_plain } = delete $user_chans{$lo};
 }
 
-# IO::Select around uplink SH for idle poll ticks (killchan grace, flood unlock, …).
-# Recreated after each reconnect; vec+select is flaky on some Windows Perl/socket stacks.
+sub _p10_away_sanitize {
+	my ($s) = @_;
+	return '' unless defined $s;
+	$s =~ s/[\x00-\x1F\x7F]//g;
+	$s = substr($s, 0, 400) if length($s) > 400;
+	return $s;
+}
+
 my $p10_io_select;
 
-# Merge [SID] placeholders into hostname once %serverids has the SID (case variants).
 sub _info_canonical_server_label {
 	my ($lb) = @_;
 	return '(unknown)' unless defined $lb && $lb ne '';
@@ -128,7 +128,6 @@ sub _info_canonical_server_label {
 	return $lb;
 }
 
-# Resolve hostname from assigned numnick; if SID missing from SERVER map, try introducing-server prefix (P10 source before N).
 sub _srv_disp_from_assigned {
 	my ($assigned_id, $intro_prefix) = @_;
 	return '' unless defined $assigned_id && $assigned_id ne '';
@@ -143,7 +142,6 @@ sub _srv_disp_from_assigned {
 	return '';
 }
 
-# Label for info_* grouping: prefer SERVER map via numnick (avoids misleading 2-char SID cached in %hosts).
 sub _info_uplink_label {
 	my ($joining_nick_plain, $p10_numeric_token) = @_;
 	if (defined $joining_nick_plain && $joining_nick_plain ne '') {
@@ -165,10 +163,7 @@ sub _info_uplink_label {
 		my $k = lc($joining_nick_plain);
 		if (exists $hosts{$k} && defined $hosts{$k}{server} && $hosts{$k}{server} ne '') {
 			my $s = $hosts{$k}{server};
-			# Stale sign-on can leave a 2-char SID here before SERVER burst; do not show as a "hostname".
 			return $s if length($s) > 2 || $s =~ /\./;
-			# If we only have a SID-ish token here, keep it visible as [SID]
-			# instead of collapsing to "(unknown)".
 			if ($s =~ /^[A-Za-z0-9\[\]]{2}$/) {
 				my $n = _sid_to_name($s);
 				return $n if $n ne '';
@@ -195,7 +190,6 @@ sub _info_note_channel {
 	$info_chans_by_server{$srv}{$lc} = 1;
 }
 
-# Trailing IRC parameter after " :" (last such delimiter). IPv6 in earlier fields may contain ":" — do not split on the first colon in the line.
 sub _p10_trailing_param {
 	my ($buffer) = @_;
 	return '' unless defined $buffer;
@@ -218,7 +212,6 @@ sub _kill_source_display {
 	return $tok;
 }
 
-# Map P10 SID / numnick token to SERVER hostname (see SERVER handler).
 sub _sid_to_name {
 	my ($id) = @_;
 	return '' unless defined $id && $id ne '';
@@ -233,7 +226,6 @@ sub _sid_to_name {
 	return '';
 }
 
-# MODE args may contain numnicks (e.g. +o AzAAA); expand to nicks for logs/verbose where known.
 sub _expand_mode_param_nicks {
 	my ($s) = @_;
 	return $s unless defined $s && $s ne '';
@@ -242,7 +234,6 @@ sub _expand_mode_param_nicks {
 	} split /\s+/, $s);
 }
 
-# Join/part: re-resolve from %serverids (may have been filled after user connect).
 sub _join_part_server_label {
 	my ($plain_nick) = @_;
 	return '' unless defined $plain_nick && $plain_nick ne '';
@@ -253,8 +244,6 @@ sub _join_part_server_label {
 	return quotemeta($disp);
 }
 
-# P10: SERVER name hop start link Jvv NUMERIC [+flags] :desc (Undernet / ircu / Nefarious).
-# Register NUMERIC token(s) -> hostname; also handle Jvv glued to numnick (no space).
 sub _register_server_numeric {
 	my ($hostname, $payload) = @_;
 	return unless defined $hostname && $hostname ne '' && defined $payload;
@@ -271,11 +260,9 @@ sub _register_server_numeric {
 		$njsid //= $s2;
 	};
 	my @f = split(/\s+/, $payload);
-	# Undernet order: [0]=name [1]=hop [2][3]=times [4]=Jvv [5]=numnick
 	if (@f >= 6 && $f[4] =~ /^J\d+/i && defined $f[5] && $f[5] !~ /^\+/) {
 		$map->($f[5]);
 	}
-	# Scan: first standalone J/P token, next field is numnick.
 	for my $i (0 .. $#f) {
 		if (defined $f[$i] && $f[$i] =~ /^J\d+/i && defined $f[$i + 1]) {
 			$map->($f[$i + 1]);
@@ -288,11 +275,9 @@ sub _register_server_numeric {
 			last;
 		}
 	}
-	# Glued Jvv + numnick (no space), e.g. J10AC]]]
 	while ($payload =~ /(?:^|\s)(J\d{1,3})([A-Za-z0-9\[\]]{2,20})(?=\s|$|\+)/ig) {
 		$map->($2);
 	}
-	# Some ircds omit a separate J/P numnick field; map any 5–6 char P10-like token (server/user numnick).
 	for my $tok (@f) {
 		next unless defined $tok;
 		next if $tok =~ /^\+/;
@@ -303,7 +288,6 @@ sub _register_server_numeric {
 	return $njsid;
 }
 
-# After SERVER maps a SID -> hostname, fix hosts{*}{server} for users already seen (ordering).
 sub _refresh_hosts_for_sid {
 	my ($sid2, $hostname) = @_;
 	return unless defined $sid2 && $sid2 ne '' && length($sid2) == 2;
@@ -323,12 +307,6 @@ my $mychants = 0;
 my $servnumeric = $numeric;
 my $parentserver = $numeric;
 
-# When > 0, holds the absolute epoch by which we expect the IRCd's reply to
-# our post-burst "STATS g" query to arrive (RPL_STATSGLINE 247 stream
-# terminated by RPL_ENDOFSTATS 219). While inflight, gline.pm suppresses the
-# per-entry "+ mask by …" channel notice so we don't spam #console with
-# hundreds of lines on (re)connect. Cleared on 219, or implicitly via the
-# deadline for safety.
 our $GLINE_STATS_INFLIGHT = 0;
 
 sub link_init
@@ -354,7 +332,6 @@ sub rawirc
 	print ">> $out\n" if $debug;
 }
 
-# $servnumeric is file-lexical; expose the bot's numnick for callers in other files.
 sub bot_numnick { return $servnumeric . 'AAA'; }
 
 
@@ -493,14 +470,6 @@ sub gline
 sub ungline
 {
 	my ($hostname) = @_;
-	# Send the full P10 GL field set on removal too:
-	#   <src> GL <target> -<mask> <expire> <lastmod> <lifetime> :<reason>
-	# ircu/Nefarious accept "+<mask>" with all six fields to mutate state
-	# but silently drop "-<mask>" with fewer arguments because the
-	# server-to-server validator treats it as malformed and bumps neither
-	# the in-memory list nor the burst replay. Mirroring the add layout
-	# (expire=now, lastmod=now, lifetime=0, trailing reason) is what every
-	# tested ircu derivative has accepted reliably.
 	my $now = time;
 	&rawirc("$servnumeric GL * -$hostname $now $now 0 :Removed by NetIRC Defender");
 }
@@ -511,12 +480,6 @@ sub gethost
 	return $hosts{lc($nick)}{host};
 }
 
-# Client snapshot from the P10 link cache (for #console whois command, etc.).
-# Returns hashref with nick, userhost, server, numnick, isoper, isservice, p10_intro, p10_intro_display,
-# gecos, client_ip (from P10 N burst if decodable), channels (arrayref of names seen via J/L/B while linked).
-# p10_intro_display: introducing-server hostname if known from SERVER map, else raw token; empty when
-# identical to server (WHOIS would duplicate the Server line).
-# or undef if unknown / no host cached.
 sub client_link_info
 {
 	my ($nick) = @_;
@@ -564,6 +527,8 @@ sub client_link_info
 		client_ip          => ($hosts{$lc}{client_ip}  // ''),
 		account            => ($hosts{$lc}{account}    // ''),
 		signon_ts          => ($hosts{$lc}{signon_ts}  // undef),
+		away               => (($hosts{$lc}{away} // 0) == 1) ? 1 : 0,
+		away_msg           => ($hosts{$lc}{away_msg}  // ''),
 		channels           => \@chans,
 	};
 }
@@ -672,7 +637,6 @@ sub checkmodes
 	{
 		$hosts{lc($nick)}{isoper} = 0;
 	}
-	# User mode +k (kline immune / service) — used by gline.pm to refuse service clients.
 	if ($modes =~ /^\+.*k.*$/)
 	{
 		$hosts{lc($nick)}{isservice} = 1;
@@ -708,9 +672,6 @@ sub isservice
 	return (($hosts{lc($nick)}{isservice} // 0) == 1);
 }
 
-# Wall-clock housekeeping: log rotation, flood channel unlocks, killchan join grace, …
-# Called once at the beginning of every poll() (so time advances even when the socket is idle)
-# and after each uplink line while draining a burst.
 sub idle_timers {
 	if (($::logger // '') eq 'Text') {
 		eval { Modules::Log::Text::maybe_check() };
@@ -726,10 +687,6 @@ sub idle_timers {
 	}
 }
 
-# Returns 1 while the uplink is healthy; 0 on EOF / hard read failure (caller should reconnect).
-# Model: idle_timers() runs before every wait and after every parsed line, so wall-clock modules
-# (killchan grace, flood unlock) advance at least once per second on an idle uplink regardless
-# of IO::Select/vec quirks on the host. defender.pl calls poll() in a tight loop.
 sub poll {
 
 	idle_timers();
@@ -761,7 +718,6 @@ sub poll {
 			return 1;
 		}
 	}
-	# No IO::Select and no fileno: fall through to blocking <SH> (idle_timers already ran).
 
 	while (1) {
 		$buffer = <SH>;
@@ -855,7 +811,6 @@ sub poll {
 				}
 				else 
 				{
-					# Trailing realname token starts with ":" after a space; IPv6 host tokens contain ":" but do not start with ":".
 					if ($element =~ /^:/) 
 					{
 						$rindex = $index;
@@ -892,6 +847,8 @@ sub poll {
 			} else {
 				delete $hosts{lc($thenick)}{client_ip};
 			}
+			$hosts{lc($thenick)}{away} = 0;
+			delete $hosts{lc($thenick)}{away_msg};
 			$nickhash{$assigned_id} = $thenick;
 			$rnickhash{lc($thenick)} = $assigned_id;
 			if ($debug) {
@@ -921,7 +878,6 @@ sub poll {
 
 		elsif ($buffer =~ /^(.+?)\sN\s(.+?)\s\d+\s\d+\s(.+?)\s(.+?)\s(.+?)\s(.+?)\s:(.+?)$/)
 		{
-			# SIGN-ON (ident/host may be IPv6 — use trailing extractor, not $7, so realname is not truncated on ":" in URLs.)
 			my $thenick = $2;
 			my $theident = $3;
 			my $thehost = $4;
@@ -951,6 +907,8 @@ sub poll {
 			} else {
 				delete $hosts{lc($thenick)}{client_ip};
 			}
+			$hosts{lc($thenick)}{away} = 0;
+			delete $hosts{lc($thenick)}{away_msg};
 			$nickhash{$assigned_id} = $thenick;
 			$rnickhash{lc($thenick)} = $assigned_id;
 			if ($debug) {
@@ -980,7 +938,6 @@ sub poll {
 			}
 		}
 
-		# MODE: source M target modestr… — modestr can be "-i", "+nt-o nick", etc.; do not use a non-greedy third token or "-i" may be lost.
 		elsif ($buffer =~ /^(.+?)\sM\s(.+)$/)
 		{
 			my $src_tok = $1;
@@ -993,7 +950,6 @@ sub poll {
 			}
 			$params =~ s/^://;
 			$params = _expand_mode_param_nicks($params);
-			# Source can be a user numnick or a server SID / prefix — not always in nickhash.
 			my $mode_source = $nickhash{$src_tok};
 			if (!defined $mode_source || $mode_source eq '') {
 				$mode_source = _sid_to_name($src_tok);
@@ -1001,11 +957,9 @@ sub poll {
 			if (!defined $mode_source || $mode_source eq '') {
 				$mode_source = $src_tok;
 			}
-			# Channel names (# & + !) stay as-is; only resolve numnick tokens to nicks for user targets.
 			if ($thetarget !~ /^[#&+!]/ && defined $nickhash{$thetarget}) {
 				$thetarget = $nickhash{$thetarget};
 			}
-			# checkmodes tracks user +o / -o only; skip channel targets (# & + !).
 			if (defined $thetarget && $thetarget ne '' && $thetarget !~ /^[#&+!]/) {
 				&checkmodes($thetarget,$params);
 			}
@@ -1149,7 +1103,6 @@ sub poll {
 			}
 		}
 
-		# KICK — remove victim from channel cache (ircu sends PART after; this keeps cache in sync).
 		elsif ($buffer =~ /^(.+?)\sK\s(\S+)\s(\S+)/)
 		{
 			my $ch_k = $2;
@@ -1203,7 +1156,6 @@ sub poll {
 			}
 		}
 
-		# ACCOUNT (P10 AC) — services login name for WHOIS-style output.
 		elsif ($buffer =~ /^(\S+)\sAC\s(\S+)\s+(.+)$/)
 		{
 			my $utok = $2;
@@ -1226,17 +1178,22 @@ sub poll {
 			}
 		}
 
-		# AWAY token "A" (P10 short form):
-		#   "<numnick> A :<reason>"  -> client is now AWAY with that reason
-		#   "<numnick> A"            -> client is no longer AWAY (back)
-		# The trailing-only-or-empty match keeps us from colliding with
-		# multi-letter "A*" tokens (AC = ACCOUNT, AD = ADMIN, ...).
 		elsif ($buffer =~ /^(\S+)\sA(?:\s:(.*))?\s*$/)
 		{
 			my $awsrc = $1;
 			my $awmsg = defined $2 ? $2 : '';
 			my $thenick_plain = $nickhash{$awsrc};
 			if (defined $thenick_plain && $thenick_plain ne '') {
+				my $alc = lc $thenick_plain;
+				if (exists $hosts{$alc}) {
+					if (!defined $2) {
+						$hosts{$alc}{away} = 0;
+						delete $hosts{$alc}{away_msg};
+					} else {
+						$hosts{$alc}{away}     = 1;
+						$hosts{$alc}{away_msg} = _p10_away_sanitize($2);
+					}
+				}
 				print "Detected AWAY change for $thenick_plain\n" if $debug;
 				my $thenick_q = quotemeta($thenick_plain);
 				my $awmsg_q   = quotemeta($awmsg);
@@ -1289,11 +1246,6 @@ sub poll {
 			        &rawirc("$servnumeric EB");
 			        &rawirc("$servnumeric EA");
 				$acknowledged = 1;
-				# Pull the network-wide active gline list so the
-				# gline scan module can populate its in-memory map
-				# without waiting for live GL events. Reply comes
-				# as a stream of RPL_STATSGLINE (247) terminated
-				# by RPL_ENDOFSTATS (219).
 				my $gtgt = ($parentserver ne '' && $parentserver ne $numeric)
 					? $parentserver : '*';
 				$GLINE_STATS_INFLIGHT = time + 60;
@@ -1303,9 +1255,6 @@ sub poll {
 			$NETJOIN = 0;
 		}
 
-		# P10 GL (G-line broadcast / netburst). Format variants:
-		#   <src> GL <target> [+|-]<mask> [<expire> [<lastmod> [<lifetime>]]] [:<reason>]
-		# Source can be a SID (server) or a user numnick (oper).
 		elsif ($buffer =~ /^(\S+)\sGL\s(.+)$/)
 		{
 			my $gl_src = $1;
@@ -1337,11 +1286,6 @@ sub poll {
 			}
 		}
 
-		# RPL_STATSGLINE (247): single gline entry from STATS g. The reply
-		# comes from the queried server (P10 SID prefix). ircu format is:
-		#   <src> 247 <bot_numnick> G <mask> <expire> <lastmod> [<lifetime>] [<flags>] :<reason>
-		# Older / non-Nefarious builds drop the lifetime and flags fields;
-		# parse defensively.
 		elsif ($buffer =~ /^(\S+)\s+247\s+\S+\s+(.+?)\s:(.*)$/)
 		{
 			my $stg_src    = $1;
@@ -1354,7 +1298,6 @@ sub poll {
 				my $stg_mask     = $sf[1];
 				my $stg_expire   = ($sf[2] =~ /^\d+$/) ? 0 + $sf[2] : 0;
 				my $stg_lastmod  = (defined $sf[3] && $sf[3] =~ /^\d+$/) ? 0 + $sf[3] : 0;
-				# Trailing flags token (e.g. "gA", "lD") is non-numeric.
 				my $stg_flags    = (defined $sf[-1] && $sf[-1] !~ /^\d+$/) ? $sf[-1] : '';
 				my $stg_inactive = ($stg_flags =~ /D/i) ? 1 : 0;
 				if (uc($stg_type) eq 'G' && !$stg_inactive) {
@@ -1370,10 +1313,6 @@ sub poll {
 			}
 		}
 
-		# RPL_ENDOFSTATS (219): terminator of a STATS reply. We only react
-		# when the stat letter is 'g' and we actually had a query inflight,
-		# so other STATS queries (issued by opers) don't accidentally clear
-		# our inflight flag.
 		elsif ($buffer =~ /^(\S+)\s+219\s+\S+\s+(\S+)\s+:/)
 		{
 			my $eos_letter = $2;

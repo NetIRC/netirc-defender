@@ -89,6 +89,24 @@ sub _chans_ellipsis {
 	return $s;
 }
 
+sub _cmsg_away_from_info {
+	my ($info) = @_;
+	return unless $info && ref $info eq 'HASH';
+	my $aw  = $info->{away} // 0;
+	my $awm = _safe($info->{away_msg} // '');
+	if ($aw) {
+		my $show = $awm;
+		$show = substr($show, 0, 220) . '...' if length($show) > 220;
+		if ($show ne '') {
+			_cmsg("  Away: yes — $show", "  \00306Away:\017 \00306yes — \00302$show\017");
+		} else {
+			_cmsg("  Away: yes (empty message)", "  \00306Away:\017 \00306yes (empty message)\017");
+		}
+	} else {
+		_cmsg("  Away: no", "  \00306Away:\017 \00302no\017");
+	}
+}
+
 sub _load {
 	%SEEN = ();
 	$SEEN_DIRTY   = 0;
@@ -214,8 +232,8 @@ sub _handle_seen {
 	$arg =~ s/^\s+|\s+$//g;
 	if ($arg !~ /^\S+$/) {
 		_cmsg(
-			"\002[SEEN]\002 Usage: \002seen <nick>\002 — online snapshot from the link, or last quit/kill for that nick (old nick is cleared on nick change).",
-			"\00305\002[SEEN]\017 \00306Usage:\017 \00302\002seen <nick>\017 \00306— online / last quit|kill; old nick history dropped on nick change.\017"
+			"\002[SEEN]\002 Usage: \002seen <nick>\002 — online snapshot (incl. away) from the link, or last quit/kill for that nick (old nick is cleared on nick change).",
+			"\00305\002[SEEN]\017 \00306Usage:\017 \00302\002seen <nick>\017 \00306— online (incl. away) / last quit|kill; old nick history dropped on nick change.\017"
 		);
 		return;
 	}
@@ -253,6 +271,7 @@ sub _handle_seen {
 				"  \00306Introducing link:\017 \00310$int\017"
 			);
 		}
+		_cmsg_away_from_info($info);
 		_cmsg("  Channels: $ch_t", "  \00306Channels:\017 \00310$ch_t\017");
 		return;
 	}
@@ -296,6 +315,7 @@ sub _handle_seen {
 					"  \002Current nick\002 \002$nicks\002 is \002online\002 (same person if nick change was the last event).",
 					"  \00306Current nick\017 \00302\002$nicks\017 \00306is \002online\002.\017"
 				);
+				_cmsg_away_from_info($i2);
 			}
 		}
 		return;
@@ -309,8 +329,8 @@ sub _handle_seen {
 
 sub cmd_help {
 	_cmsg(
-		"\002[SEEN]\002 \002seen <nick>\002 — if online, user\@host, server, channels (link cache). If offline, last \002quit\002 or \002kill\002; changing nick drops the \002old\002 nick from last-seen.",
-		"\00305\002[SEEN]\017 \00302seen <nick>\017 \00306— online / last quit|kill; old nick cleared on nick change.\017"
+		"\002[SEEN]\002 \002seen <nick>\002 — if online, user\@host, away (P10 while link), server, channels (link cache). If offline, last \002quit\002 or \002kill\002; changing nick drops the \002old\002 nick from last-seen.",
+		"\00305\002[SEEN]\017 \00302seen <nick>\017 \00306— online (incl. \00314away\017\00306) / last quit|kill; old nick cleared on nick change.\017"
 	);
 }
 

@@ -1,6 +1,6 @@
 # NetIRC Defender V3
 
-Modular IRC security service for **P10** (ircu-style) uplinks: DNSBL checks, flood controls, G-lines, channel enforcement, optional GeoIP (`ipinfo`), console **`whois`** from the link cache, and more. Written in Perl.
+Modular IRC security service for **P10** (ircu-style) uplinks: DNSBL checks, flood controls, G-lines, channel enforcement, optional GeoIP (`ipinfo`), console **`whois`** / **`seen`** from the link cache (including **away** when the hub reports it on the link), and more. Written in Perl.
 
 **Lineage:** the codebase shares roots with the public [key2peace/defender](https://github.com/key2peace/defender) project (Defender IRC service). You do **not** need a GitHub “Fork” of that repo to publish this tree: a **standalone repository** is fine. **NetIRC Defender V3** is this project’s name and P10-focused evolution. Keep the **GPL-2.0** license file and existing copyright headers in source files when you redistribute (see [License](#license)).
 
@@ -138,13 +138,15 @@ Only modules **listed** in `defender.conf` are active. Names must match `Modules
 | **verbose** | Announces joins/parts/modes/KILLs/etc. on the control channel. | None (automatic). |
 | **gline** | Manages G-lines (local cache + IRCd); syncs GL traffic from the link. | **`gline`**, **`gline help`** — help text. **`gline add …`**, **`gline del …`**, **`gline list`**, **`gline del all`**. Shorthand: **`gline <target> [time] [reason]`** (same as `gline add`). **oper**. |
 | **ipinfo** | GeoIP / host info via ipinfo.io (token in `defender.conf`). | **`ip`** or **`ip <target>`** (address, hostname, or nick) — **oper**. |
-| **whois** | Snapshot from the P10 client cache (not the IRCd’s full `/WHOIS`). | **`whois <nick>`** or **`whois nick <nick>`** — **oper**. |
-| **seen** | Last **quit** / **kill** for a nick, or **online** from the P10 cache. Changing nick **removes** the old nick from last-seen. | **`seen <nick>`** — **oper**; `datadir/seen_state.sto` (pruned, persisted). |
+| **whois** | Snapshot from the P10 client cache (not the IRCd’s full `/WHOIS`). Includes **away** and away message when the service has seen P10 `A` (away) traffic for that user while connected; **idle** is not on this snapshot. | **`whois <nick>`** or **`whois nick <nick>`** — **oper**. |
+| **seen** | Last **quit** / **kill** for a nick, or **online** from the P10 cache, with **away** on the same rules as **whois** when the nick is still online. Changing nick **removes** the old nick from last-seen. | **`seen <nick>`** — **oper**; `datadir/seen_state.sto` (pruned, persisted). |
 | **regexp_akill** | On sign-on, matches `nick!ident@host` + realname against regexes; G-lines on match. | **`regexp_akill add <pattern> <reason>`**, **`regexp_akill del <pattern>`**, **`regexp_akill list`** — **oper**; file `regexp_akill.conf`. |
 | **cgiirc** | Detects unauthorised CGI:IRC via VERSION notices; optional `cgiirc.conf` whitelist. | None (automatic). |
 | **version** | CTCP VERSION fingerprinting / `deny_version.conf` rules (when **version** is in `modules=`). | **`version ctcp-all`** — sends CTCP VERSION to `$*.net`; **oper**. Replies still filtered by `deny_version.conf`. |
 
 To see the **exact** help string a module registers, use **`help <module>`** on the control channel (same text as in the bot output).
+
+**Away / idle:** away state in **whois** and **seen** (online users) comes from the P10 link cache: it is accurate after the hub has sent the relevant `A` lines while Defender is linked (e.g. during live traffic or netburst). Users who were already away before the service linked may show as not away until they toggle away or the state appears in burst. **Idle** time is never part of the link cache; use the network’s **WHOIS** for idle.
 
 ## Project layout (high level)
 

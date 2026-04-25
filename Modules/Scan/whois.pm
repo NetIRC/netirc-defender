@@ -102,6 +102,8 @@ sub _emit_whois_lines {
 	my $cip   = _whois_safe($info->{client_ip} // '');
 	my $acct  = _whois_safe($info->{account}   // '');
 	my $sts   = $info->{signon_ts};
+	my $away  = $info->{away} // 0;
+	my $aw_m  = _whois_safe($info->{away_msg} // '');
 	my $chref = $info->{channels};
 
 	my $net = _whois_safe($main::netname // '');
@@ -127,6 +129,19 @@ sub _emit_whois_lines {
 	_cmsg($p, $c);
 	($p, $c) = _whois_row('Account', ($acct ne '') ? $acct : 'n/a');
 	_cmsg($p, $c);
+	if ($away) {
+		my $show = $aw_m;
+		$show = substr($show, 0, 220) . '...' if length($show) > 220;
+		my $plain_v = ($show ne '') ? "yes — $show" : 'yes (empty message)';
+		my $col_v = ($show ne '')
+			? "\00306yes — \00302$show\017"
+			: "\00306yes (empty message)\017";
+		($p, $c) = _whois_row('Away', $plain_v, $col_v);
+		_cmsg($p, $c);
+	} else {
+		($p, $c) = _whois_row('Away', 'no');
+		_cmsg($p, $c);
+	}
 	if ($svc) {
 		($p, $c) = _whois_row('Sign-on', 'n/a (service; link time not a client sign-on clock)');
 	} elsif (defined $sts && $sts =~ /^\d+$/ && $sts > 0) {
@@ -187,8 +202,8 @@ sub _handle_whois {
 
 sub cmd_help {
 	_cmsg(
-		"\002[WHOIS]\002 \002whois <nick>\002 — link cache: user\@host, Seen IP, account, sign-on, server, channels, privileges. Service clients (+k) often have no real IP/clock sign-on on the P10 cache. Idle is not on this snapshot; use server /whois for that.",
-		"\00305\002[WHOIS]\017 \00302whois <nick>\017 \00306— link cache (no \00314idle\017\00306; use server \00314WHOIS\017 \00306for that).\017"
+		"\002[WHOIS]\002 \002whois <nick>\002 — link cache: user\@host, Seen IP, account, away (P10 while linked), sign-on, server, channels, privileges. Service clients (+k) often have no real IP/clock sign-on on the P10 cache. Idle is not on this snapshot; use server /whois for that.",
+		"\00305\002[WHOIS]\017 \00302whois <nick>\017 \00306— link cache incl. \00314away\017\00306 (P10 on link; no \00314idle\017\00306 — use server \00314WHOIS\017\00306).\017"
 	);
 }
 
