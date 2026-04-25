@@ -309,8 +309,8 @@ sub _handle_seen {
 
 sub cmd_help {
 	_cmsg(
-		"\002[SEEN]\002 \002seen <nick>\002 — if online, user\@host, server, channels (link cache). If offline, last \002quit\002 or \002kill\002; changing nick drops the \002old\002 nick from last-seen. \002Oper\002 only. \002seen_state.sto\002 in \002datadir\002.",
-		"\00305\002[SEEN]\017 \00302seen <nick>\017 \00306— online / last quit|kill; old nick cleared on nick change. \002Oper\002; \002seen_state.sto\002.\017"
+		"\002[SEEN]\002 \002seen <nick>\002 — if online, user\@host, server, channels (link cache). If offline, last \002quit\002 or \002kill\002; changing nick drops the \002old\002 nick from last-seen.",
+		"\00305\002[SEEN]\017 \00302seen <nick>\017 \00306— online / last quit|kill; old nick cleared on nick change.\017"
 	);
 }
 
