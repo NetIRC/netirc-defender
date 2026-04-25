@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 NetIRC Defender
 #
-# NetIRC Defender V3 — local WHOIS from P10 client cache (#console)
+# NetIRC Defender V3 - network security service
 
 package Modules::Scan::whois;
 
