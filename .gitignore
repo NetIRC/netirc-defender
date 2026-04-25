@@ -5,6 +5,7 @@ ircd.conf
 defender.log
 defender.pid
 defender_persistent_counters.v1
+seen_state.sto
 checkdefender
 dnsbl.conf
 regexp_akill.conf

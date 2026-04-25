@@ -50,7 +50,7 @@ mail=irc@example.org
 # -----------------------------------------------------------------------------
 # CTCP VERSION (client fingerprint / deny_version.conf): ON only if the name
 # "version" appears in the list below.
-modules=conn_average,flood,dnsbl,nickflood,killchan,message,verbose,gline,ipinfo,whois
+modules=conn_average,flood,dnsbl,nickflood,killchan,message,verbose,gline,ipinfo,whois,seen
 
 # -----------------------------------------------------------------------------
 # 6. Paths and persistent counters
@@ -139,6 +139,9 @@ nickflood_limit=3
 killchan_join_grace_sec=20
 # killchan — pause (seconds) after the "timer expired" NOTICE before G-line / oper follow-up (0 = none). Max 5.
 killchan_post_notice_delay_sec=1
+
+# seen — last-seen storage (Storable) in datadir/seen_state.sto; pruned to at most this many nicks
+#seen_max_entries=10000
 
 # Optional, not used by current core:
 #servregexp=

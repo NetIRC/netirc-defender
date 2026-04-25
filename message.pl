@@ -277,8 +277,8 @@ sub msghandler {
 				"\00302\002info\017\00306, \00302\002info help\017 \00306— snapshot. \00302info servers\017\00306, \00302info users\017\00306, \00302info chans\017\00306.\017"
 			);
 			_cmsg(
-				"\002ip\002, \002whois\002 — GeoIP / client snapshot from the link. Details: \002help ipinfo\002, \002help whois\002 when those modules are loaded.",
-				"\00302\002ip\017\00306, \00302\002whois\017 \00306— GeoIP / link snapshot. \00302\002help ipinfo\017\00306, \00302\002help whois\017 \00306if loaded.\017"
+				"\002ip\002, \002whois\002, \002seen\002 — GeoIP / link snapshot / last-seen. Details: \002help ipinfo\002, \002help whois\002, \002help seen\002 when those modules are loaded.",
+				"\00302\002ip\017\00306, \00302\002whois\017\00306, \00302\002seen\017 \00306— GeoIP / snapshot / last-seen. \00302\002help ipinfo\017\00306, \00302\002help whois\017\00306, \00302\002help seen\017 \00306if loaded.\017"
 			);
 			_cmsg(
 				"\002status\002, \002status all\002, \002status <module>\002 — uptime, metrics, per-module stats.",
@@ -317,8 +317,8 @@ sub msghandler {
 					"\00306Command index:\017 \00302\002help\017 \00306/\017 \00302\002help <module>\017 \00306— loaded modules.\017"
 				);
 				_cmsg(
-					"\002info\002: P10 link snapshot. Subcommands: \002info servers\002, \002info users\002, \002info chans\002. Lookups: \002ip <host|nick>\002, \002whois <nick>\002 (link cache).",
-					"\00305\002info\017\00306: P10 link snapshot. Subcommands: \00302\002info servers\017\00306, \00302\002info users\017\00306, \00302\002info chans\017\00306. Lookups: \00302\002ip <host|nick>\017\00306, \00302\002whois <nick>\017\00306.\017"
+					"\002info\002: P10 link snapshot. Subcommands: \002info servers\002, \002info users\002, \002info chans\002. Lookups: \002ip\002, \002whois\002, \002seen\002 (link cache / last event).",
+					"\00305\002info\017\00306: P10 link snapshot. Subcommands: \00302\002info servers\017\00306, \00302\002info users\017\00306, \00302\002info chans\017\00306. Lookups: \00302\002ip\017\00306, \00302\002whois\017\00306, \00302\002seen\017\00306.\017"
 				);
 				_cmsg(
 					"Channels are names observed on this link during the current session (JOIN traffic only), not a complete map of the network.",
