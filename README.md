@@ -9,7 +9,7 @@ Modular IRC security service for **P10** (ircu-style) uplinks: DNSBL checks, flo
 - Perl **5.10+**. Networking uses **`Socket`** and **`IO::Socket`**, which ship with a normal Perl build as **core modules** (they are not separate CPAN installs when you use the `perl` package from your Linux distribution).
 - Linux (or similar) is assumed for production; P10 link to your hub.
 - **Config parsing:** this tree bundles `Config::General` and `Tie::IxHash` under `Config/` and `Tie/` — you do not install those from CPAN.
-- **`dnsbl` module:** uses the same core **`Socket`** helpers (`gethostbyname` / `inet_ntoa`) for RBL DNS lookups — no **`Net::DNS`** or other CPAN DNS stack. Lists and replies are read from **`dnsbl.conf`** in your `datadir` (not committed; ship your own).
+- **`dnsbl` module:** uses the same core **`Socket`** helpers (`gethostbyname` / `inet_ntoa`) for RBL DNS lookups — no **`Net::DNS`** or other CPAN DNS stack. Lists and replies are read from **`dnsbl.conf`** in your `datadir`. Use **`dnsbl.conf.example`** in the repository as a template (copy to `datadir/dnsbl.conf` and replace with zones you are allowed to query).
 
 ## New server: install Perl (VPS / bare metal)
 
@@ -53,6 +53,13 @@ Then continue with [Quick start](#quick-start) (clone, `defender.conf`, run).
    $EDITOR /path/to/your/deny_version.conf
    ```
 
+   If **`dnsbl`** is in `modules=`, create **`datadir/dnsbl.conf`** (Config::General; one block per RBL zone). You can start from the template:
+
+   ```bash
+   cp dnsbl.conf.example /path/to/your/dnsbl.conf
+   $EDITOR /path/to/your/dnsbl.conf
+   ```
+
 3. Run (foreground debug):
 
    ```bash
@@ -89,7 +96,7 @@ See the top of `checkD.sh` for `CHECKD_LOG`, `CHECKD_DEBUG`, and `CHECKD_LOG_EVE
 
 - **`defender.conf`** — hub `server` / `port` / `password`, `linktype=p10`, service identity (`servername`, `sid`, …), `channel` (control channel, e.g. `#console`), `modules=…`, paths, thresholds. **ipinfo** reads **`ipinfo_token`**, **`ipinfo_line_delay_ms`**, **`ipinfo_cache_ttl_sec`**, **`ipinfo_burst_limit`**, **`ipinfo_burst_window_sec`**, **`ipinfo_http_timeout_sec`** (see `defender.conf.example`). Optional **`control_channel_line_delay_ms`** (else falls back to `ipinfo_line_delay_ms`) spaces consecutive bot lines when sent within ~1.5s of each other: **PRIVMSG** to the control channel **and** **`globops`** (wallops / `WA`).
 - **`defender.conf` is not committed** (see `.gitignore`); use **`defender.conf.example`** as the template.
-- Other local files (under **`datadir`**, usually your install directory) that are not committed: `dnsbl.conf`, `regexp_akill.conf`, `glines.conf`, `killchans.conf`, `deny_version.conf`, `defender_persistent_counters.v1`, `seen_state.sto` (from the **seen** module), logs, `defender.pid`. Repository templates: `defender.conf.example`, `deny_version.conf.example` — copy to `datadir` and edit. A commented `cgiirc.conf` may live at the project root in this tree; the running service reads **`$datadir/cgiirc.conf`** (create or copy there if you use the **cgiirc** module). Optional: **`seen_max_entries`** in `defender.conf` (default 10000) limits last-seen records.
+- Other local files (under **`datadir`**, usually your install directory) that are not committed: `dnsbl.conf`, `regexp_akill.conf`, `glines.conf`, `killchans.conf`, `deny_version.conf`, `defender_persistent_counters.v1`, `seen_state.sto` (from the **seen** module), logs, `defender.pid`. Repository templates: `defender.conf.example`, `deny_version.conf.example`, **`dnsbl.conf.example`** — copy to `datadir` and edit. A commented `cgiirc.conf` may live at the project root in this tree; the running service reads **`$datadir/cgiirc.conf`** (create or copy there if you use the **cgiirc** module). Optional: **`seen_max_entries`** in `defender.conf` (default 10000) limits last-seen records.
 
 ## Control channel & commands
 
@@ -153,6 +160,7 @@ To see the **exact** help string a module registers, use **`help <module>`** on 
 | `checkD.sh` | Cron watchdog only (auto restart after reboot/crash) |
 | `defender.conf.example` | Config template (copy to `datadir` as `defender.conf`) |
 | `deny_version.conf.example` | Template for the **version** module’s `deny_version.conf` in `datadir` |
+| `dnsbl.conf.example` | Template for **`dnsbl.conf`** (Config::General: RBL zones, `duration`, `reason`, `<reply>`) |
 
 ## License
 

@@ -50,6 +50,7 @@ mail=irc@example.org
 # -----------------------------------------------------------------------------
 # CTCP VERSION (client fingerprint / deny_version.conf): ON only if the name
 # "version" appears in the list below.
+# dnsbl — copy dnsbl.conf.example to datadir/dnsbl.conf (one RBL zone per block; see example file)
 modules=conn_average,flood,dnsbl,nickflood,killchan,message,verbose,gline,ipinfo,whois,seen
 
 # -----------------------------------------------------------------------------

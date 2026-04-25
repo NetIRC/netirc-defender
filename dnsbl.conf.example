@@ -1,0 +1,34 @@
+# NetIRC Defender V3 — dnsbl.conf
+# ---------------------------------------------------------------------------
+# Copy to your datadir (see defender.conf: datadir=) as:  dnsbl.conf
+# The dnsbl module loads:  <datadir>/dnsbl.conf
+# Format: Config::General (see bundled Config::General). One <zone> block per
+# RBL. Queries use IPv4:  <reversed-ip>.<zone>  (this build is IPv4-only).
+#   duration  — G-line lifetime in seconds
+#   reason    — G-line / notice text; $ip is replaced. Leading ":" is OK.
+#   <reply>   — last octet of 127.0.0.N from DNS → short label (per RBL docs)
+# Update the `network=` query string for DroneBL to match your network if you
+# use their lookup page (replace YourNetwork with your name).
+# ---------------------------------------------------------------------------
+
+<dnsbl.dronebl.org>
+	<reply>
+		3	= IRC spam drone (litmus/sdbot family)
+		5	= Bottler (experimental)
+		6	= Unknown worm or spambot
+		7	= DDoS drone
+		8	= Open SOCKS proxy
+		9	= Open HTTP proxy
+		10	= Proxychain
+		13	= Automated dictionary attacks
+		14	= Open WINGATE proxy
+		15	= Compromised router/gateway
+		16	= Autorooting worms
+		17	= Automatically determined botnet IPs (experimental)
+		18	= Possibly compromised DNS/MX type hostname detected on IRC
+		19	= Abused Open VPN Service
+		255	= Uncategorized threat class
+	</reply>
+	reason		= :For more information, visit https://dronebl.org/lookup?ip=$ip&network=YourNetwork
+	duration	= 7200
+</dnsbl.dronebl.org>
