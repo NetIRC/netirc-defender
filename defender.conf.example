@@ -1,0 +1,144 @@
+# =============================================================================
+# NetIRC Defender V3 — defender.conf.example
+# Copy to defender.conf and edit. defender.conf is gitignored.
+# Format: key=value  |  lines starting with # are comments  |  no spaces around =
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. Hub uplink (P10 / ircu — see C/N lines on the IRCd)
+# -----------------------------------------------------------------------------
+server=hub.example.org
+port=4400
+password=change-me
+linktype=p10
+
+# Local IP to bind (empty = all interfaces). Optional.
+bind=
+
+# -----------------------------------------------------------------------------
+# 2. Service server identity (SERVER line / pseudoclient)
+# -----------------------------------------------------------------------------
+servername=Defender.example.org
+numeric=ZZ
+sid=0XX
+serverdesc=Example IRC Network
+
+# -----------------------------------------------------------------------------
+# 3. Pseudoclient / control channel
+# -----------------------------------------------------------------------------
+botnick=D
+domain=Defender.example.org
+fullname=NetIRC Defender V3 - network security service
+quitmsg=NetIRC Defender V3 - shutdown
+channel=#console
+
+# -----------------------------------------------------------------------------
+# 4. Network, contact strings (G-lines, notices, etc.)
+# -----------------------------------------------------------------------------
+networkname=ExampleNet
+supportchannel=#console
+url=https://example.org/
+mail=irc@example.org
+
+# Optional (leave empty or omit if unused — read by Main.pm)
+#nickserv=
+#opername=
+#operpass=
+
+# -----------------------------------------------------------------------------
+# 5. Scan modules (comma-separated list, no spaces)
+# -----------------------------------------------------------------------------
+# CTCP VERSION (client fingerprint / deny_version.conf): ON only if the name
+# "version" appears in the list below.
+modules=conn_average,flood,dnsbl,nickflood,killchan,message,verbose,gline,ipinfo,whois
+
+# -----------------------------------------------------------------------------
+# 6. Paths and persistent counters
+# -----------------------------------------------------------------------------
+datadir=/home/YOURUSER/defender-master
+
+# 1 = persist all-time totals in datadir/defender_persistent_counters.v1 (survive restart).
+#     File stores since=<unix epoch> for the “cumulative since” line in status.
+# 0 = session counters only
+persistent_counters=1
+
+# -----------------------------------------------------------------------------
+# 7. File logging (logto=Text) — size rotation / retention
+# -----------------------------------------------------------------------------
+logto=Text
+logpath=/home/YOURUSER/defender-master/defender.log
+log_rotate_mb=10
+log_rotate_keep=7
+log_rotate_interval_sec=300
+
+# -----------------------------------------------------------------------------
+# 8. General behaviour
+# -----------------------------------------------------------------------------
+paranoia=7
+authtype=client
+
+# -----------------------------------------------------------------------------
+# 9. Control-channel output (verbose module and formatted lines)
+# -----------------------------------------------------------------------------
+# ugly=1 = plain text (no mIRC colour codes)  |  ugly=0 = colour-formatted
+ugly=0
+OneWord=0
+# Log VERSION replies on #console when module "version" is loaded (see modules= above).
+version_verbose=1
+
+# Delay between consecutive lines: PRIVMSG to the control channel and globops / wallops (WA).
+# (ms; 0 = off; max 5000). If unset, uses ipinfo_line_delay_ms below, else 400. Only if the
+# previous send was within ~1.5s.
+#control_channel_line_delay_ms=
+
+# -----------------------------------------------------------------------------
+# 10. Scan module thresholds and options
+# -----------------------------------------------------------------------------
+
+# gline — extra nicks (comma-separated, case-insensitive) that cannot be G-lined by nick.
+# Built-in defaults include Undernet-style X, C and E, plus ChanServ, NickServ, MemoServ, etc.
+#gline_protect_nicks=Global,MyCustomService
+
+# conn_average — connection burst rate (per minute)
+conn_average_max=3
+
+# dnsbl — IPv4 lookup cache TTL (seconds; 0 = disable cache)
+dnsbl_cache_ttl=300
+
+# --- ipinfo (all keys read from defender.conf) ---
+# API token from ipinfo.io (recommended: full geo / mobile / proxy fields)
+ipinfo_token=
+# Line spacing: also the default for control_channel_line_delay_ms if that key is unset (see section 9)
+ipinfo_line_delay_ms=400
+# In-memory cache for API JSON (seconds; 0 = no cache)
+ipinfo_cache_ttl_sec=300
+# At most this many API calls per sliding window (abuse guard)
+ipinfo_burst_limit=20
+# Sliding window for ipinfo_burst_limit (seconds)
+ipinfo_burst_window_sec=60
+# HTTP timeout per request to ipinfo.io (seconds)
+ipinfo_http_timeout_sec=10
+
+# regexp_akill — max wall-clock time per client for all patterns (ReDoS guard; 0 = off)
+regexp_akill_alarm_sec=3
+
+# flood — per-channel message thresholds, temporary +f lock
+flood_log=1
+flood_globops=2
+flood_lock=3
+flood_interval=5
+flood_lock_seconds=60
+flood_mode_double=1
+flood_lock_channel_a=1
+# flood_mode= — optional: +f mode letters (see flood.pm for allowed set)
+
+# nickflood — rapid nick changes
+nickflood_limit=3
+
+# killchan — seconds to wait after JOIN before G-line / oper notice (0 = immediate). Cancelled if they PART the channel first. Max 300.
+killchan_join_grace_sec=20
+# killchan — pause (seconds) after the "timer expired" NOTICE before G-line / oper follow-up (0 = none). Max 5.
+killchan_post_notice_delay_sec=1
+
+# Optional, not used by current core:
+#servregexp=

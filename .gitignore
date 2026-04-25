@@ -1,0 +1,16 @@
+data
+defender.conf
+# Local ircd snippets often contain secrets — keep out of VCS
+ircd.conf
+defender.log
+defender.pid
+defender_persistent_counters.v1
+checkdefender
+dnsbl.conf
+regexp_akill.conf
+checkD.log
+nohup.out
+.checkD.lock
+glines.conf
+killchans.conf
+deny_version.conf

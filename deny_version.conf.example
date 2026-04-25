@@ -1,0 +1,4 @@
+# Tab-separated: <version-regex> <G|K> <reason>
+# G = G-line, K = KILL (see version.pm).
+# Add one rule per line (no # prefix on rule lines).
+subseven.+	G	Subseven trojan drone
