@@ -90,6 +90,22 @@ sub _whois_row_channels {
 	return;
 }
 
+sub _fmt_idle {
+	my ($sec) = @_;
+	return 'n/a' unless defined $sec && $sec =~ /^\d+$/;
+	$sec = 0 + $sec;
+	return '0s' if $sec <= 0;
+	my $d = int($sec / 86400); $sec %= 86400;
+	my $h = int($sec / 3600);  $sec %= 3600;
+	my $m = int($sec / 60);    $sec %= 60;
+	my @p;
+	push @p, "${d}d" if $d;
+	push @p, "${h}h" if $h;
+	push @p, "${m}m" if $m;
+	push @p, "${sec}s" if $sec || !@p;
+	return join ' ', @p;
+}
+
 sub _emit_whois_lines {
 	my ($info) = @_;
 	my $n     = _whois_safe($info->{nick}     // '');
@@ -102,6 +118,7 @@ sub _emit_whois_lines {
 	my $cip   = _whois_safe($info->{client_ip} // '');
 	my $acct  = _whois_safe($info->{account}   // '');
 	my $sts   = $info->{signon_ts};
+	my $idle  = $info->{idle_sec};
 	my $away  = $info->{away} // 0;
 	my $aw_m  = _whois_safe($info->{away_msg} // '');
 	my $chref = $info->{channels};
@@ -127,8 +144,10 @@ sub _emit_whois_lines {
 	}
 	($p, $c) = _whois_row('Real name', ($gecos ne '') ? $gecos : 'n/a');
 	_cmsg($p, $c);
-	($p, $c) = _whois_row('Account', ($acct ne '') ? $acct : 'n/a');
-	_cmsg($p, $c);
+	if ($acct ne '') {
+		($p, $c) = _whois_row('Account', $acct);
+		_cmsg($p, $c);
+	}
 	if ($away) {
 		my $show = $aw_m;
 		$show = substr($show, 0, 220) . '...' if length($show) > 220;
@@ -179,6 +198,13 @@ sub _handle_whois {
 		);
 		return;
 	}
+	if (defined $main::botnick && lc($target) eq lc($main::botnick)) {
+		_cmsg(
+			"\002[WHOIS]\002 You found me (\002$main::botnick\002). I'm already in your console, caffeinated and watching everything.",
+			"\00305\002[WHOIS]\017 \00306You found me (\00302\002$main::botnick\017\00306). Already in console, caffeinated, and watching everything.\017"
+		);
+		return;
+	}
 
 	if (!defined &main::client_link_info) {
 		_cmsg(
@@ -198,12 +224,21 @@ sub _handle_whois {
 	}
 
 	_emit_whois_lines($info);
+	if (defined &main::request_live_whois) {
+		my $ok_live = eval { main::request_live_whois($nick, $target); 1 };
+		if ($ok_live) {
+			_cmsg(
+				"\002[WHOIS]\002 Live IRCd idle lookup requested for \002$target\002 (wait).",
+				"\00305\002[WHOIS]\017 \00306Live IRCd idle lookup requested for\017 \00302\002$target\017\00306 (wait).\017"
+			);
+		}
+	}
 }
 
 sub cmd_help {
 	_cmsg(
-		"\002[WHOIS]\002 \002whois <nick>\002 — link cache: user\@host, Seen IP, account, away (P10 while linked), sign-on, server, channels, privileges. Service clients (+k) often have no real IP/clock sign-on on the P10 cache. Idle is not on this snapshot; use server /whois for that.",
-		"\00305\002[WHOIS]\017 \00302whois <nick>\017 \00306— link cache incl. \00314away\017\00306 (P10 on link; no \00314idle\017\00306 — use server \00314WHOIS\017\00306).\017"
+		"\002[WHOIS]\002 \002whois <nick>\002 — link cache: user\@host, Seen IP, account (if known), away (P10 while linked), sign-on, server, channels, privileges. Also requests live IRCd WHOIS idle (317) and account (330) when supported.",
+		"\00305\002[WHOIS]\017 \00302whois <nick>\017 \00306— link cache + live IRCd idle/account lookup (317/330) when available.\017"
 	);
 }
 

@@ -10,9 +10,6 @@ checkD.log
 nohup.out
 .checkD.lock
 
-# Local ircd snippets often contain secrets
-ircd.conf
-
 # Per-install config (copy from *.example in repo)
 dnsbl.conf
 regexp_akill.conf

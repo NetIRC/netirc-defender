@@ -74,7 +74,6 @@ our $CTCP_WINDOW  = 10;
 our $CTCP_MUTE    = 300;
 our $CTCP_GC_KEYS = 1024;
 
-# Drop nicks that have been silent longer than $CTCP_MUTE; called opportunistically.
 sub _ctcp_gc {
 	my $now = time;
 	for my $k (keys %CTCP_LAST) {
@@ -104,7 +103,6 @@ sub _ctcp_allow {
 	return 1;
 }
 
-# Strip control bytes / NUL / CR / LF / CTCP delimiter and cap length.
 sub _ctcp_sanitize_arg {
 	my ($s, $max) = @_;
 	return '' unless defined $s;
@@ -130,7 +128,6 @@ sub noticehandler {
 		$sHost = $3;
 	}
 
-	# In P10 $target arrives as the bot's numnick, not the textual nick.
 	my $bot_numnick = (defined &main::bot_numnick) ? main::bot_numnick() : '';
 	if ((lc($target) eq lc($botnick))
 	    || ($bot_numnick ne '' && $target eq $bot_numnick)) {
@@ -165,7 +162,6 @@ sub msghandler {
 		$sHost = $3;
 	}
 
-	# In P10 $target arrives as the bot's numnick, not the textual nick.
 	my $bot_numnick = (defined &main::bot_numnick) ? main::bot_numnick() : '';
 	my $is_to_bot = (lc($target) eq lc($botnick))
 		|| ($bot_numnick ne '' && $target eq $bot_numnick);
@@ -224,9 +220,9 @@ sub msghandler {
 			return;
 		}
 
-		if (lc($message) eq lc("$botnick quit")) {
+		if ($message =~ /^\Q$botnick\E\s+shutdown\s*$/i) {
 			if (!_is_ircop($sNick)) {
-				_deny_ircop_only('quit');
+				_deny_ircop_only('shutdown');
 				return;
 			}
 			&shutdown;
@@ -285,8 +281,8 @@ sub msghandler {
 				"\00302\002status\017\00306, \00302\002status all\017\00306, \00302\002status <module>\017 \00306— uptime, metrics, per-module stats.\017"
 			);
 			_cmsg(
-				"\002$botnick rehash\002 — reload configuration and scan modules. \002$botnick quit\002 — shut down the bot.",
-				"\00302\002$botnick rehash\017\00306 — reload config/modules. \00302\002$botnick quit\017\00306 — shut down.\017"
+				"\002$botnick rehash\002 — reload configuration and scan modules. \002$botnick shutdown\002 — shut down the bot.",
+				"\00302\002$botnick rehash\017\00306 — reload config/modules. \00302\002$botnick shutdown\017\00306 — shut down.\017"
 			);
 			_cmsg(
 				"— Module-specific commands (loaded now) —",

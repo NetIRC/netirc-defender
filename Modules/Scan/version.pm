@@ -34,6 +34,10 @@ my $iroffer = 0;
 
 my @deny_version_rows;
 my @version_rules;
+my @ctcp_out_times;
+my $ctcp_out_mute_until = 0;
+my $ctcp_out_sent = 0;
+my $ctcp_out_dropped = 0;
 
 use constant _DENY_VERSION_PATTERN_MAX => 1024;
 
@@ -52,6 +56,67 @@ sub _version_reply_to_console {
 		return $v !~ /^(0|false|no)$/i;
 	}
 	return main::depends("verbose");
+}
+
+sub _ctcp_out_burst {
+	my $k = 'version_ctcp_global_burst';
+	if (defined &main::is_attack_mode && main::is_attack_mode()) {
+		my $ak = 'attack_' . $k;
+		$k = $ak if defined $main::dataValues{$ak} && $main::dataValues{$ak} ne '';
+	}
+	my $v = $main::dataValues{$k};
+	$v = 120 unless defined $v && $v =~ /^[0-9]+$/;
+	$v = int($v);
+	return 10 if $v < 10;
+	return 5000 if $v > 5000;
+	return $v;
+}
+
+sub _ctcp_out_window_sec {
+	my $k = 'version_ctcp_global_window_sec';
+	if (defined &main::is_attack_mode && main::is_attack_mode()) {
+		my $ak = 'attack_' . $k;
+		$k = $ak if defined $main::dataValues{$ak} && $main::dataValues{$ak} ne '';
+	}
+	my $v = $main::dataValues{$k};
+	$v = 10 unless defined $v && $v =~ /^[0-9]+$/;
+	$v = int($v);
+	return 1 if $v < 1;
+	return 300 if $v > 300;
+	return $v;
+}
+
+sub _ctcp_out_mute_sec {
+	my $k = 'version_ctcp_global_mute_sec';
+	if (defined &main::is_attack_mode && main::is_attack_mode()) {
+		my $ak = 'attack_' . $k;
+		$k = $ak if defined $main::dataValues{$ak} && $main::dataValues{$ak} ne '';
+	}
+	my $v = $main::dataValues{$k};
+	$v = 30 unless defined $v && $v =~ /^[0-9]+$/;
+	$v = int($v);
+	return 1 if $v < 1;
+	return 3600 if $v > 3600;
+	return $v;
+}
+
+sub _allow_outgoing_ctcp_version {
+	my $now = time;
+	if ($now < $ctcp_out_mute_until) {
+		$ctcp_out_dropped++;
+		return 0;
+	}
+	my $window = _ctcp_out_window_sec();
+	@ctcp_out_times = grep { $_ > ($now - $window) } @ctcp_out_times;
+	my $burst = _ctcp_out_burst();
+	if (scalar(@ctcp_out_times) >= $burst) {
+		$ctcp_out_mute_until = $now + _ctcp_out_mute_sec();
+		$ctcp_out_dropped++;
+		return 0;
+	}
+	push @ctcp_out_times, $now;
+	$ctcp_out_sent++;
+	return 1;
 }
 
 sub _rebuild_version_rules {
@@ -108,6 +173,10 @@ sub stats {
 	main::message("Total connecting clients scanned: \002$connects\002");
 	main::message("Percentage of blacklisted versions (banned): \002$percentG%\002");
 	main::message("Percentage of blacklisted versions (warned): \002$percentW%\002");
+	main::message("CTCP VERSION sent (scan_user): \002$ctcp_out_sent\002");
+	main::message("CTCP VERSION dropped (rate):   \002$ctcp_out_dropped\002");
+	my $mute_left = ($ctcp_out_mute_until > time) ? ($ctcp_out_mute_until - time) : 0;
+	main::message("CTCP VERSION mute left (sec):  \002$mute_left\002");
 	main::message(" ");
 	main::message("\002Version Survey:\002");
 	main::message(" ");
@@ -180,7 +249,7 @@ sub scan_user {
 	$serv  = _dsp($serv);
 	$nick  = _dsp($nick);
 
-	if ($host !~ /underhanded/)
+	if ($host !~ /underhanded/ && _allow_outgoing_ctcp_version())
 	{	
 		main::message_to($nick, "\001VERSION\001");
 	}
@@ -351,6 +420,10 @@ sub init {
         main::provides("version");
 
 	@deny_version_rows = ();
+	@ctcp_out_times = ();
+	$ctcp_out_mute_until = 0;
+	$ctcp_out_sent = 0;
+	$ctcp_out_dropped = 0;
 	my %seen_pattern;
 
 	open(BL, "<$main::dir/deny_version.conf") or print "Missing deny_version.conf file!\n";

@@ -89,6 +89,22 @@ sub _chans_ellipsis {
 	return $s;
 }
 
+sub _fmt_idle {
+	my ($sec) = @_;
+	return 'n/a' unless defined $sec && $sec =~ /^\d+$/;
+	$sec = 0 + $sec;
+	return '0s' if $sec <= 0;
+	my $d = int($sec / 86400); $sec %= 86400;
+	my $h = int($sec / 3600);  $sec %= 3600;
+	my $m = int($sec / 60);    $sec %= 60;
+	my @p;
+	push @p, "${d}d" if $d;
+	push @p, "${h}h" if $h;
+	push @p, "${m}m" if $m;
+	push @p, "${sec}s" if $sec || !@p;
+	return join ' ', @p;
+}
+
 sub _cmsg_away_from_info {
 	my ($info) = @_;
 	return unless $info && ref $info eq 'HASH';
@@ -247,6 +263,13 @@ sub _handle_seen {
 
 	my $q = $arg;
 	my $q_lc = lc $q;
+	if (defined $main::botnick && $q_lc eq lc($main::botnick)) {
+		_cmsg(
+			"\002[SEEN]\002 You are looking at me (\002$main::botnick\002): always online, never afk, professionally nosy.",
+			"\00305\002[SEEN]\017 \00306You are looking at me (\00302\002$main::botnick\017\00306): always online, never afk, professionally nosy.\017"
+		);
+		return;
+	}
 	my $info = main::client_link_info($q);
 
 	if ($info && ref $info eq 'HASH') {
@@ -329,8 +352,8 @@ sub _handle_seen {
 
 sub cmd_help {
 	_cmsg(
-		"\002[SEEN]\002 \002seen <nick>\002 — if online, user\@host, away (P10 while link), server, channels (link cache). If offline, last \002quit\002 or \002kill\002; changing nick drops the \002old\002 nick from last-seen.",
-		"\00305\002[SEEN]\017 \00302seen <nick>\017 \00306— online (incl. \00314away\017\00306) / last quit|kill; old nick cleared on nick change.\017"
+		"\002[SEEN]\002 \002seen <nick>\002 — if online, user\@host, away, server, channels (link cache). If offline, last \002quit\002 or \002kill\002; changing nick drops the \002old\002 nick from last-seen.",
+		"\00305\002[SEEN]\017 \00302seen <nick>\017 \00306— online (away, server, channels) / last quit|kill; old nick cleared on nick change.\017"
 	);
 }
 

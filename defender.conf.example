@@ -56,10 +56,9 @@ mail=irc@example.org
 #   dnsbl        — G-line if client IPv4 is listed (needs datadir/dnsbl.conf); gethostbyname per zone is synchronous
 # regexp_akill is documented in README but not loaded here by default; add it to the list below if needed.
 # CTCP VERSION is ON only if the name "version" appears below.
+# version needs datadir/deny_version.conf (tab-separated rules) to enforce G/K policy.
 # dnsbl — copy dnsbl.conf.example to datadir/dnsbl.conf (one RBL zone per block; see example file)
 # Keep conn_average before dnsbl (and any scan_user G-line module) so join-rate stats stay correct.
-# signon_fast_console=1 (default) runs verbose+version scan_user before other modules regardless of order below.
-# If you require RBL before CTCP/console on sign-on, set signon_fast_console=0 and put dnsbl before verbose/version.
 modules=conn_average,verbose,version,dnsbl,flood,nickflood,killchan,message,gline,ipinfo,whois,seen
 
 # -----------------------------------------------------------------------------
@@ -71,6 +70,8 @@ datadir=/home/YOURUSER/defender-master
 #     File stores since=<unix epoch> for the “cumulative since” line in status.
 # 0 = session counters only
 persistent_counters=1
+# Flush interval for persistent counters file writes (seconds; lower = fresher, higher = faster under burst)
+persistent_counters_flush_sec=5
 
 # -----------------------------------------------------------------------------
 # 7. File logging (logto=Text) — size rotation / retention
@@ -96,9 +97,6 @@ OneWord=0
 # 1 = log each CTCP VERSION reply on the control channel | 0 = hide those lines (deny_version still applies)
 version_verbose=0
 
-# 1 = prioritize console lines: Signed on/CTCP first on connect; Signed off / join / part / kill / nick before slower modules (e.g. seen). 0 = strict modules= order.
-signon_fast_console=1
-
 # Optional: delay between consecutive PRIVMSG to the control channel and globops (WA).
 # (ms; 0 = off; max 5000). Unset = off. Only applies if the previous send was within ~1.5s.
 #control_channel_line_delay_ms=400
@@ -113,11 +111,44 @@ signon_fast_console=1
 
 # conn_average — max sign-ons per minute before GLOBOPS (+ optional duplicate on control channel); 0 = disabled
 conn_average_max=30
+# attack mode — automatic global profile switch
+# 1 = enable auto switch to aggressive profile when flood threshold is hit
+attack_mode_auto=1
+# Enter attack mode when conn_average sees at least this many connects/minute
+attack_mode_enter_conn_per_min=35
+# Keep attack mode active for this many seconds (extended if re-triggered)
+attack_mode_hold_sec=600
 # conn_average — repeat the same warning on the control channel (0 = GLOBOPS only)
 conn_average_mirror_console=1
+# conn_average — emergency auto-block mode: when threshold is exceeded, new clients are G-lined.
+# 0 = disabled (default), 1 = enabled
+conn_average_autoblock=0
+# How long the emergency block stays active once triggered (seconds)
+conn_average_autoblock_duration_sec=900
+# While attack mode is ON, force conn_average autoblock even if conn_average_autoblock=0
+conn_average_autoblock_attack_mode=1
+# attack-mode override for conn_average_autoblock_duration_sec
+attack_conn_average_autoblock_duration_sec=1200
+# Reason used for auto G-lines in emergency mode
+conn_average_autoblock_reason=Connection flood emergency block
 
 # dnsbl — IPv4 lookup cache TTL (seconds; 0 = disable cache)
 dnsbl_cache_ttl=300
+# dnsbl — max seconds per zone lookup (0 = no timeout)
+dnsbl_query_timeout_sec=2
+# dnsbl circuit breaker — when connect or timeout rate is too high, DNSBL is
+# temporarily skipped to keep the service responsive.
+dnsbl_cb_trigger_conn_per_min=80
+dnsbl_cb_trigger_timeouts_per_min=20
+dnsbl_cb_cooldown_sec=120
+# dnsbl — when parser has pending input, skip expensive DNSBL lookups and
+# cache temporary clean result for this many seconds (0 = disable soft-cache).
+dnsbl_backlog_skip_ttl_sec=3
+# attack-mode overrides (used only while attack mode is ON)
+attack_dnsbl_query_timeout_sec=1
+attack_dnsbl_cb_trigger_conn_per_min=40
+attack_dnsbl_cb_trigger_timeouts_per_min=10
+attack_dnsbl_cb_cooldown_sec=300
 
 # --- ipinfo (all keys read from defender.conf) ---
 # API token from ipinfo.io (recommended: full geo / mobile / proxy fields)
@@ -130,6 +161,16 @@ ipinfo_burst_limit=20
 ipinfo_burst_window_sec=60
 # HTTP timeout per request to ipinfo.io (seconds)
 ipinfo_http_timeout_sec=10
+
+# version — global CTCP VERSION output limiter (scan_user path)
+# If burst is exceeded inside the window, outgoing CTCP VERSION is muted for mute_sec.
+version_ctcp_global_burst=120
+version_ctcp_global_window_sec=10
+version_ctcp_global_mute_sec=30
+# attack-mode overrides (used only while attack mode is ON)
+attack_version_ctcp_global_burst=50
+attack_version_ctcp_global_window_sec=10
+attack_version_ctcp_global_mute_sec=120
 
 # regexp_akill — only used when regexp_akill is in modules= (max wall-clock time per client per scan; ReDoS guard; 0 = off)
 regexp_akill_alarm_sec=3

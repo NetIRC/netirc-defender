@@ -165,16 +165,21 @@ sub handle_expire {
 		my $e = $killchan_pending{$pk};
 		next unless ref $e eq 'HASH';
 		next if $now < int($e->{at} // 0);
-		delete $killchan_pending{$pk};
 		my $listkey = $e->{listkey};
 		next unless defined $listkey && exists $killchans{$listkey};
 		my $cn = $e->{chan_disp};
 		my $nn = $e->{nick};
-		main::notice($nn,
-			"Killchan timer expired for \2$cn\2 — applying network policy now."
-		);
-		my $gap = _killchan_post_notice_delay_sec();
-		select(undef, undef, undef, $gap) if $gap > 0;
+		if (!exists $e->{post_notice_at}) {
+			main::notice($nn,
+				"Killchan timer expired for \2$cn\2 — applying network policy now."
+			);
+			my $gap = _killchan_post_notice_delay_sec();
+			$e->{post_notice_at} = ($gap > 0) ? ($now + $gap) : $now;
+			$killchan_pending{$pk} = $e;
+			next;
+		}
+		next if $now < int($e->{post_notice_at} // 0);
+		delete $killchan_pending{$pk};
 		_killchan_do_join_penalty($nn, $cn, $listkey);
 	}
 

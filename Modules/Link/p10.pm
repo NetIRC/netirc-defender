@@ -9,6 +9,10 @@ use IO::Select ();
 use Socket ();
 use Time::HiRes ();
 use constant CC_MSG_BURST_SEC => 1.5;
+use constant P10_POLL_WAIT_SEC => 0.20;
+use constant MAX_P10_IN_LINE => 8192;
+use constant MAX_P10_OUT_LINE => 8192;
+use constant LIVE_WHOIS_TIMEOUT_SEC => 5;
 
 sub _dispatch_scan {
 	my ($mod, $method, @args) = @_;
@@ -19,23 +23,8 @@ sub _dispatch_scan {
 	print $@ if $@;
 }
 
-# When 1 (default): prioritize console-friendly hooks so slow modules (dnsbl, seen disk, …) do not delay
-# Signed on / CTCP, Signed off, join/part lines, kills, or nick changes. Set 0 for strict modules= order.
-sub _signon_fast_console {
-	my $v = $main::dataValues{'signon_fast_console'} // '';
-	return 1 if !defined $v || $v eq '';
-	return $v !~ /^(0|false|no)$/i;
-}
-
 sub _dispatch_verbose_first_hook {
 	my ( $oldkilled, $method, @args ) = @_;
-	if ( !_signon_fast_console() ) {
-		for my $mod (@modlist) {
-			next if $KILLED ne $oldkilled;
-			_dispatch_scan( $mod, $method, @args );
-		}
-		return;
-	}
 	if ( $KILLED eq $oldkilled ) {
 		_dispatch_scan( 'verbose', $method, @args );
 	}
@@ -48,23 +37,15 @@ sub _dispatch_verbose_first_hook {
 
 sub _dispatch_scan_user_signon {
 	my ( $oldkilled, $ident, $host, $srv, $nick, $gecos, $print_always ) = @_;
-	if ( _signon_fast_console() ) {
-		my %first = map { $_ => 1 } qw(verbose version);
-		for my $mod (@modlist) {
-			next unless $first{$mod};
-			if ( $KILLED eq $oldkilled ) {
-				_dispatch_scan( $mod, 'scan_user', $ident, $host, $srv, $nick, $gecos, $print_always );
-			}
+	my %first = map { $_ => 1 } qw(verbose version);
+	for my $mod (@modlist) {
+		next unless $first{$mod};
+		if ( $KILLED eq $oldkilled ) {
+			_dispatch_scan( $mod, 'scan_user', $ident, $host, $srv, $nick, $gecos, $print_always );
 		}
-		for my $mod (@modlist) {
-			next if $first{$mod};
-			if ( $KILLED eq $oldkilled ) {
-				_dispatch_scan( $mod, 'scan_user', $ident, $host, $srv, $nick, $gecos, $print_always );
-			}
-		}
-		return;
 	}
 	for my $mod (@modlist) {
+		next if $first{$mod};
 		if ( $KILLED eq $oldkilled ) {
 			_dispatch_scan( $mod, 'scan_user', $ident, $host, $srv, $nick, $gecos, $print_always );
 		}
@@ -167,7 +148,17 @@ sub _p10_away_sanitize {
 	return $s;
 }
 
+sub _mark_user_activity {
+	my ($nick_plain) = @_;
+	return unless defined $nick_plain && $nick_plain ne '';
+	my $lc = lc $nick_plain;
+	return unless exists $hosts{$lc};
+	$hosts{$lc}{last_activity_ts} = time;
+}
+
 my $p10_io_select;
+my $inbound_batch_count = 0;
+my $p10_readbuf = '';
 
 sub _info_canonical_server_label {
 	my ($lb) = @_;
@@ -287,6 +278,22 @@ sub _expand_mode_param_nicks {
 	} split /\s+/, $s);
 }
 
+sub _fmt_idle_human {
+	my ($sec) = @_;
+	return 'n/a' unless defined $sec && $sec =~ /^\d+$/;
+	$sec = 0 + $sec;
+	return '0s' if $sec <= 0;
+	my $d = int($sec / 86400); $sec %= 86400;
+	my $h = int($sec / 3600);  $sec %= 3600;
+	my $m = int($sec / 60);    $sec %= 60;
+	my @p;
+	push @p, "${d}d" if $d;
+	push @p, "${h}h" if $h;
+	push @p, "${m}m" if $m;
+	push @p, "${sec}s" if $sec || !@p;
+	return join ' ', @p;
+}
+
 sub _join_part_server_label {
 	my ($plain_nick) = @_;
 	return '' unless defined $plain_nick && $plain_nick ne '';
@@ -356,6 +363,7 @@ sub _refresh_hosts_for_sid {
 
 my $acknowledged = 0;
 my $mychants = 0;
+my %live_whois_pending;
 
 my $servnumeric = $numeric;
 my $parentserver = $numeric;
@@ -380,7 +388,13 @@ sub link_init
 
 sub rawirc
 {
-	my $out = $_[0]; $out .= "\n\r";
+	my $out = $_[0];
+	$out = '' unless defined $out;
+	$out =~ s/[\x00\r\n]//g;
+	if (length($out) > MAX_P10_OUT_LINE) {
+		$out = substr($out, 0, MAX_P10_OUT_LINE);
+	}
+	$out .= "\r\n";
 	syswrite(SH, $out, length($out));
 	print ">> $out\n" if $debug;
 }
@@ -394,9 +408,8 @@ sub privmsg
 	if ($nick !~ /^(#|&).+/) {
 		$nick = $rnickhash{lc($nick)};
 	}
-	my $first = $servnumeric."AAA P $nick :$_[1]\n\r";
-	syswrite(SH, $first, length($first));
-	print ">> $first" if $debug;
+	my $line = $servnumeric."AAA P $nick :$_[1]";
+	&rawirc($line);
 }
 
 
@@ -407,12 +420,12 @@ sub notice
 		$nick = $rnickhash{lc($nick)};
 	}
 	my $msg = $_[1];
-	my $first = $servnumeric."AAA O $nick :$msg\n\r";
-	syswrite(SH, $first, length($first));
-	print ">> $first" if $debug;
+	my $line = $servnumeric."AAA O $nick :$msg";
+	&rawirc($line);
 }
 
 my $cc_prev_out_time;
+my $inbound_dispatch_active = 0;
 
 sub _control_channel_line_delay_ms {
 	my $k = 'control_channel_line_delay_ms';
@@ -423,8 +436,54 @@ sub _control_channel_line_delay_ms {
 		$ms = 5000 if $ms > 5000;
 		return $ms;
 	}
-	# Unset: no artificial delay (do not inherit ipinfo_line_delay_ms — that key is not used by ipinfo.pm).
 	return 0;
+}
+
+sub _link_has_pending_input {
+	my $fd = fileno(SH);
+	return 0 unless defined $fd && $fd >= 0;
+	my $rin = '';
+	vec($rin, $fd, 1) = 1;
+	my $n = select($rin, undef, undef, 0);
+	return (defined $n && $n > 0) ? 1 : 0;
+}
+
+sub link_input_pending {
+	return _link_has_pending_input() ? 1 : 0;
+}
+
+sub link_dispatch_batch_count {
+	return $inbound_batch_count // 0;
+}
+
+sub _p10_buffer_has_line {
+	return (index($p10_readbuf, "\n") >= 0) ? 1 : 0;
+}
+
+sub _p10_extract_line {
+	my $idx = index($p10_readbuf, "\n");
+	return undef if $idx < 0;
+	my $line = substr($p10_readbuf, 0, $idx + 1, '');
+	return $line;
+}
+
+sub _p10_next_line_nonblocking {
+	my $line = _p10_extract_line();
+	return $line if defined $line;
+	return undef unless _link_has_pending_input();
+	my $chunk = '';
+	my $n = sysread(SH, $chunk, 8192);
+	if (!defined $n) {
+		return undef if $!{EAGAIN} || $!{EWOULDBLOCK} || $!{EINTR};
+		return '__P10_EOF__';
+	}
+	return '__P10_EOF__' if $n == 0;
+	$p10_readbuf .= $chunk;
+	if (length($p10_readbuf) > (MAX_P10_IN_LINE * 8) && index($p10_readbuf, "\n") < 0) {
+		$p10_readbuf = '';
+		return undef;
+	}
+	return _p10_extract_line();
 }
 
 sub _pacing_wait_if_tight_burst {
@@ -432,6 +491,7 @@ sub _pacing_wait_if_tight_burst {
 	if ($d_ms > 0 && defined $cc_prev_out_time) {
 		my $age = Time::HiRes::time() - $cc_prev_out_time;
 		if ($age < CC_MSG_BURST_SEC) {
+			return if _link_has_pending_input();
 			my $s = $d_ms / 1000.0;
 			select(undef, undef, undef, $s) if $s > 0;
 		}
@@ -442,10 +502,21 @@ sub _mark_pacing_outbound_sent {
 	$cc_prev_out_time = Time::HiRes::time();
 }
 
+sub _is_latency_critical_console_line {
+	my ($line) = @_;
+	return 0 unless defined $line && $line ne '';
+	my $plain = $line;
+	$plain =~ s/\x03(?:\d{1,2}(?:,\d{1,2})?)?//g;
+	$plain =~ s/[\x02\x0F\x16\x1F]//g;
+	$plain =~ s/^\s+|\s+$//g;
+	return ($plain =~ /^Signed\s+(?:on|off)\s*:/i) ? 1 : 0;
+}
+
 sub message
 {
 	my $line = shift;
-	_pacing_wait_if_tight_burst();
+	my $is_critical = _is_latency_critical_console_line($line);
+	_pacing_wait_if_tight_burst() if !$is_critical;
 	$line = $servnumeric."AAA P $mychan :$line";
 	&rawirc($line);
 	_mark_pacing_outbound_sent();
@@ -487,6 +558,22 @@ sub service_part
 	my ($chan) = @_;
 	return if $chan !~ /^[#&]/;
 	&rawirc("$servnumeric AAA L $chan");
+}
+
+sub request_live_whois
+{
+	my ($requester_nick, $target_nick) = @_;
+	return 0 unless defined $target_nick && $target_nick ne '';
+	my $src = bot_numnick();
+	return 0 unless defined $src && $src ne '';
+	my $dst = $rnickhash{lc($target_nick)} // $target_nick;
+	$live_whois_pending{lc($target_nick)} = {
+		requester => (defined $requester_nick ? $requester_nick : ''),
+		ts        => time,
+		target    => $target_nick,
+	};
+	&rawirc("$src W $dst :$target_nick");
+	return 1;
 }
 
 
@@ -563,6 +650,13 @@ sub client_link_info
 		}
 	}
 
+	my $last_act = $hosts{$lc}{last_activity_ts};
+	my $idle_sec;
+	if (defined $last_act && $last_act =~ /^\d+$/) {
+		$idle_sec = time - (0 + $last_act);
+		$idle_sec = 0 if $idle_sec < 0;
+	}
+
 	return {
 		nick               => $disp,
 		userhost           => $uh,
@@ -576,6 +670,8 @@ sub client_link_info
 		client_ip          => ($hosts{$lc}{client_ip}  // ''),
 		account            => ($hosts{$lc}{account}    // ''),
 		signon_ts          => ($hosts{$lc}{signon_ts}  // undef),
+		last_activity_ts   => (defined $last_act ? (0 + $last_act) : undef),
+		idle_sec           => $idle_sec,
 		away               => (($hosts{$lc}{away} // 0) == 1) ? 1 : 0,
 		away_msg           => ($hosts{$lc}{away_msg}  // ''),
 		channels           => \@chans,
@@ -658,6 +754,7 @@ sub connect {
 	print ("[P10] Connecting to $server\:$port...\n");
 	my $sin = sockaddr_in ($port,inet_aton($server));
 	connect(SH,$sin) || print "[P10] Could not connect to server: $!\n";
+	$p10_readbuf = '';
 
 	print ("[P10] Logging in...\n");
 	&rawirc("PASS :" . $password . "");
@@ -669,6 +766,7 @@ sub connect {
 sub reconnect
 {
 	$p10_io_select = undef;
+	$p10_readbuf = '';
 	close SH;
 	&connect;
 }
@@ -722,6 +820,21 @@ sub isservice
 }
 
 sub idle_timers {
+	eval { main::maybe_flush_persistent_counters() };
+	print "[idle_timers] maybe_flush_persistent_counters: $@" if $@;
+	if (%live_whois_pending) {
+		my $now = time;
+		for my $k (keys %live_whois_pending) {
+			my $r = $live_whois_pending{$k};
+			next unless ref($r) eq 'HASH';
+			my $ts = $r->{ts};
+			next unless defined $ts && $ts =~ /^\d+$/;
+			next if ($now - $ts) < LIVE_WHOIS_TIMEOUT_SEC;
+			my $wn = $r->{target} // $k;
+			main::message("\00305\002[WHOIS]\017 \00306Live idle for\017 \00302\002$wn\017\00306:\017 \00304\002n/a\017 \00306(IRCd timeout)\017");
+			delete $live_whois_pending{$k};
+		}
+	}
 	if (($::logger // '') eq 'Text') {
 		eval { Modules::Log::Text::maybe_check() };
 		print $@ if $@;
@@ -753,26 +866,37 @@ sub poll {
 	my $fd_sh = fileno(SH);
 	my $have_vec = (defined $fd_sh && $fd_sh >= 0);
 
-	if ($p10_io_select) {
-		my @ready = $p10_io_select->can_read(1.0);
-		if (!@ready) {
-			return 1;
-		}
-	} elsif ($have_vec) {
-		my $rin = '';
-		vec($rin, $fd_sh, 1) = 1;
-		my $n = select($rin, undef, undef, 1.0);
-		return 0 unless defined $n;
-		if ($n == 0) {
-			return 1;
+	if (!_p10_buffer_has_line()) {
+		if ($p10_io_select) {
+			my @ready = $p10_io_select->can_read(P10_POLL_WAIT_SEC);
+			if (!@ready) {
+				return 1;
+			}
+		} elsif ($have_vec) {
+			my $rin = '';
+			vec($rin, $fd_sh, 1) = 1;
+			my $n = select($rin, undef, undef, P10_POLL_WAIT_SEC);
+			return 0 unless defined $n;
+			if ($n == 0) {
+				return 1;
+			}
 		}
 	}
 
+	$inbound_batch_count = 0;
 	while (1) {
-		$buffer = <SH>;
-		return 0 unless defined $buffer;
+		my $next = _p10_next_line_nonblocking();
+		last unless defined $next;
+		return 0 if $next eq '__P10_EOF__';
+		$buffer = $next;
+		if (length($buffer) > MAX_P10_IN_LINE) {
+			print "[P10] Dropped oversized input line (" . length($buffer) . " bytes).\n";
+			next;
+		}
 		chomp($buffer);
-		chop($buffer);
+		$buffer =~ s/\r$//;
+		$inbound_dispatch_active = 1;
+		$inbound_batch_count++;
 		my $oldkilled = $KILLED;
 
 		idle_timers();
@@ -827,6 +951,7 @@ sub poll {
 				$rnickhash{lc($newnick_plain)} = $token;
 			}
 			_dispatch_verbose_first_hook( $oldkilled, 'handle_nick', $oldnick_plain // '', $newnick_plain );
+			_mark_user_activity($newnick_plain);
 		}
 
 		elsif ($buffer =~ /^.+?\sN\s(.+?)\s\d+\s\d+\s(.+?)\s(.+?)\s(.+?)\s(.+?)\s(.+?)\s:(.+?)$/)
@@ -892,6 +1017,7 @@ sub poll {
 			}
 			$hosts{lc($thenick)}{away} = 0;
 			delete $hosts{lc($thenick)}{away_msg};
+			$hosts{lc($thenick)}{last_activity_ts} = time;
 			$nickhash{$assigned_id} = $thenick;
 			$rnickhash{lc($thenick)} = $assigned_id;
 			if ($debug) {
@@ -948,6 +1074,7 @@ sub poll {
 			}
 			$hosts{lc($thenick)}{away} = 0;
 			delete $hosts{lc($thenick)}{away_msg};
+			$hosts{lc($thenick)}{last_activity_ts} = time;
 			$nickhash{$assigned_id} = $thenick;
 			$rnickhash{lc($thenick)} = $assigned_id;
 			if ($debug) {
@@ -1121,6 +1248,7 @@ sub poll {
 				(defined $thetarget ? $thetarget : ""),
 				$join_srv
 			);
+			_mark_user_activity($thenick_plain);
 		}
 
 		elsif ($buffer =~ /^(.+?)\sK\s(\S+)\s(\S+)/)
@@ -1152,6 +1280,7 @@ sub poll {
 						$params_q);
 				}
 			}
+			_mark_user_activity($thenick_plain);
 		}
 
 		elsif ($buffer =~ /^(.+?)\sL\s(.+?)$/)
@@ -1171,6 +1300,7 @@ sub poll {
 				(defined $thetarget ? $thetarget : ""),
 				$part_srv
 			);
+			_mark_user_activity($thenick_plain);
 		}
 
 		elsif ($buffer =~ /^(\S+)\sAC\s(\S+)\s+(.+)$/)
@@ -1192,6 +1322,7 @@ sub poll {
 			my $un = $nickhash{$utok};
 			if (defined $un && $un ne '') {
 				$hosts{lc($un)}{account} = $acct;
+				_mark_user_activity($un);
 			}
 		}
 
@@ -1217,6 +1348,7 @@ sub poll {
 				foreach my $mod (@modlist) {
 					_dispatch_scan($mod, 'handle_away', $thenick_q, $awmsg_q);
 				}
+				_mark_user_activity($thenick_plain);
 			}
 		}
 
@@ -1342,9 +1474,56 @@ sub poll {
 			}
 		}
 
+		elsif ($buffer =~ /^(\S+)\s+317\s+(\S+)\s+(\S+)\s+(\d+)(?:\s+\d+)?\s+:(.*)$/)
+		{
+			my $rq = $2;
+			my $wn = $3;
+			my $idle = $4;
+			my $bot = bot_numnick();
+			if (defined $bot && $rq eq $bot && exists $live_whois_pending{lc($wn)}) {
+				my $idle_h = _fmt_idle_human($idle);
+				main::message("\00305\002[WHOIS]\017 \00306Live idle for\017 \00302\002$wn\017\00306:\017 \00302\002$idle_h\017 \00306(IRCd clock)\017");
+			}
+		}
+
+		elsif ($buffer =~ /^(\S+)\s+330\s+(\S+)\s+(\S+)\s+(\S+)\s+:(.*)$/)
+		{
+			my $rq   = $2;
+			my $wn   = $3;
+			my $acct = $4;
+			my $bot  = bot_numnick();
+			if (defined $bot && $rq eq $bot && exists $live_whois_pending{lc($wn)}) {
+				if (defined $acct && $acct ne '') {
+					$acct =~ s/^://;
+					my $wlc = lc($wn);
+					my $old_acct = '';
+					if (exists $hosts{$wlc} && defined $hosts{$wlc}{account}) {
+						$old_acct = $hosts{$wlc}{account};
+					}
+					if (exists $hosts{$wlc}) {
+						$hosts{$wlc}{account} = $acct;
+					}
+					if ($old_acct eq '' || lc($old_acct) ne lc($acct)) {
+						main::message("\00305\002[WHOIS]\017 \00306Live account for\017 \00302\002$wn\017\00306:\017 \00302\002$acct\017");
+					}
+				}
+			}
+		}
+
+		elsif ($buffer =~ /^(\S+)\s+318\s+(\S+)\s+(\S+)\s+:/)
+		{
+			my $rq = $2;
+			my $wn = $3;
+			my $bot = bot_numnick();
+			if (defined $bot && $rq eq $bot) {
+				delete $live_whois_pending{lc($wn)};
+			}
+		}
+
 		elsif ($buffer =~ /^(.+?)\sO\s(.+?)\s:(.+?)$/)
 		{
 			if (defined $nickhash{$1}) {
+				_mark_user_activity($nickhash{$1});
 				$buffer = ":" . $nickhash{$1} . " NOTICE $2 :$3";
 				&noticehandler($buffer);
 			}
@@ -1359,6 +1538,7 @@ sub poll {
 		elsif ($buffer =~ /^(.+?)\sP\s(.+?)\s:(.+?)$/) 
 		{
 			if (defined $nickhash{$1}) {
+				_mark_user_activity($nickhash{$1});
 				$buffer = ":" . $nickhash{$1} . " PRIVMSG $2 :$3";
 				&msghandler($buffer);
 			}
@@ -1374,17 +1554,9 @@ sub poll {
 			&rawirc("$servnumeric 318 $source $botnick :End of /WHOIS list.");
 		}
 
-		if ($p10_io_select) {
-			my @more = $p10_io_select->can_read(0);
-			next if @more;
-		} elsif ($have_vec) {
-			my $r_m = '';
-			vec($r_m, $fd_sh, 1) = 1;
-			my $n_m = select($r_m, undef, undef, 0);
-			next if (defined $n_m && $n_m > 0);
-		}
-		last;
 	}
+	$inbound_dispatch_active = 0;
+	$inbound_batch_count = 0;
 
 	return 1;
 
@@ -1397,6 +1569,7 @@ sub shutdown {
 	&rawirc("$servnumeric SQ $servnumeric :$quitmsg");
 	sleep(1);
 	$p10_io_select = undef;
+	$p10_readbuf = '';
 	close SH;
 	exit;
 }
