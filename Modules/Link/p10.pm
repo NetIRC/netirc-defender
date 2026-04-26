@@ -7,6 +7,7 @@
 use warnings;
 use IO::Select ();
 use Socket ();
+use Time::HiRes ();
 use constant CC_MSG_BURST_SEC => 1.5;
 
 sub _dispatch_scan {
@@ -16,6 +17,58 @@ sub _dispatch_scan {
 	return unless defined &{$fq};
 	eval { &{$fq}(@args) };
 	print $@ if $@;
+}
+
+# When 1 (default): prioritize console-friendly hooks so slow modules (dnsbl, seen disk, …) do not delay
+# Signed on / CTCP, Signed off, join/part lines, kills, or nick changes. Set 0 for strict modules= order.
+sub _signon_fast_console {
+	my $v = $main::dataValues{'signon_fast_console'} // '';
+	return 1 if !defined $v || $v eq '';
+	return $v !~ /^(0|false|no)$/i;
+}
+
+sub _dispatch_verbose_first_hook {
+	my ( $oldkilled, $method, @args ) = @_;
+	if ( !_signon_fast_console() ) {
+		for my $mod (@modlist) {
+			next if $KILLED ne $oldkilled;
+			_dispatch_scan( $mod, $method, @args );
+		}
+		return;
+	}
+	if ( $KILLED eq $oldkilled ) {
+		_dispatch_scan( 'verbose', $method, @args );
+	}
+	for my $mod (@modlist) {
+		next if $mod eq 'verbose';
+		next if $KILLED ne $oldkilled;
+		_dispatch_scan( $mod, $method, @args );
+	}
+}
+
+sub _dispatch_scan_user_signon {
+	my ( $oldkilled, $ident, $host, $srv, $nick, $gecos, $print_always ) = @_;
+	if ( _signon_fast_console() ) {
+		my %first = map { $_ => 1 } qw(verbose version);
+		for my $mod (@modlist) {
+			next unless $first{$mod};
+			if ( $KILLED eq $oldkilled ) {
+				_dispatch_scan( $mod, 'scan_user', $ident, $host, $srv, $nick, $gecos, $print_always );
+			}
+		}
+		for my $mod (@modlist) {
+			next if $first{$mod};
+			if ( $KILLED eq $oldkilled ) {
+				_dispatch_scan( $mod, 'scan_user', $ident, $host, $srv, $nick, $gecos, $print_always );
+			}
+		}
+		return;
+	}
+	for my $mod (@modlist) {
+		if ( $KILLED eq $oldkilled ) {
+			_dispatch_scan( $mod, 'scan_user', $ident, $host, $srv, $nick, $gecos, $print_always );
+		}
+	}
 }
 
 my %hosts = ();
@@ -370,18 +423,14 @@ sub _control_channel_line_delay_ms {
 		$ms = 5000 if $ms > 5000;
 		return $ms;
 	}
-	$v = $main::dataValues{'ipinfo_line_delay_ms'} // 400;
-	$v = 400 unless defined $v && $v =~ /^[0-9]+$/;
-	$v = 0 + $v;
-	$v = 0   if $v < 0;
-	$v = 5000 if $v > 5000;
-	return $v;
+	# Unset: no artificial delay (do not inherit ipinfo_line_delay_ms — that key is not used by ipinfo.pm).
+	return 0;
 }
 
 sub _pacing_wait_if_tight_burst {
 	my $d_ms = _control_channel_line_delay_ms();
 	if ($d_ms > 0 && defined $cc_prev_out_time) {
-		my $age = time - $cc_prev_out_time;
+		my $age = Time::HiRes::time() - $cc_prev_out_time;
 		if ($age < CC_MSG_BURST_SEC) {
 			my $s = $d_ms / 1000.0;
 			select(undef, undef, undef, $s) if $s > 0;
@@ -390,7 +439,7 @@ sub _pacing_wait_if_tight_burst {
 }
 
 sub _mark_pacing_outbound_sent {
-	$cc_prev_out_time = time;
+	$cc_prev_out_time = Time::HiRes::time();
 }
 
 sub message
@@ -777,13 +826,7 @@ sub poll {
 				$nickhash{$token} = $newnick_plain;
 				$rnickhash{lc($newnick_plain)} = $token;
 			}
-			foreach my $mod (@modlist) {
-				next if $KILLED ne $oldkilled;
-				my $pkg = "Modules::Scan::".$mod;
-				if (my $nh = $pkg->can('handle_nick')) {
-					$nh->($oldnick_plain // '', $newnick_plain);
-				}
-			}
+			_dispatch_verbose_first_hook( $oldkilled, 'handle_nick', $oldnick_plain // '', $newnick_plain );
 		}
 
 		elsif ($buffer =~ /^.+?\sN\s(.+?)\s\d+\s\d+\s(.+?)\s(.+?)\s(.+?)\s(.+?)\s(.+?)\s:(.+?)$/)
@@ -861,19 +904,15 @@ sub poll {
 					  (defined $theserver_id?$theserver_id:"")."\)\n");
 				print $rep;
 			}
-			foreach my $mod (@modlist) 
-			{
-				if ($KILLED eq $oldkilled) 
-				{
-					_dispatch_scan($mod, 'scan_user',
-						(defined $theident ? $theident : ""),
-						(defined $thehost ? $thehost : ""),
-						$srv_disp,
-						(defined $thenick ? $thenick : ""),
-						(defined $thegecos ? $thegecos : ""),
-						0);
-				}
-			}
+			_dispatch_scan_user_signon(
+				$oldkilled,
+				(defined $theident ? $theident : ""),
+				(defined $thehost ? $thehost : ""),
+				$srv_disp,
+				(defined $thenick ? $thenick : ""),
+				(defined $thegecos ? $thegecos : ""),
+				0
+			);
 		}
 
 		elsif ($buffer =~ /^(.+?)\sN\s(.+?)\s\d+\s\d+\s(.+?)\s(.+?)\s(.+?)\s(.+?)\s:(.+?)$/)
@@ -923,19 +962,15 @@ sub poll {
 			}
 			$thegecos = quotemeta($thegecos);
 			$thenick = quotemeta($thenick);
-			foreach my $mod (@modlist) 
-			{
-				if ($KILLED eq $oldkilled) 
-				{
-					_dispatch_scan($mod, 'scan_user',
-						(defined $theident ? $theident : ""),
-						(defined $thehost ? $thehost : ""),
-						$srv_disp,
-						(defined $thenick ? $thenick : ""),
-						(defined $thegecos ? $thegecos : ""),
-						0);
-				}
-			}
+			_dispatch_scan_user_signon(
+				$oldkilled,
+				(defined $theident ? $theident : ""),
+				(defined $thehost ? $thehost : ""),
+				$srv_disp,
+				(defined $thenick ? $thenick : ""),
+				(defined $thegecos ? $thegecos : ""),
+				0
+			);
 		}
 
 		elsif ($buffer =~ /^(.+?)\sM\s(.+)$/)
@@ -997,10 +1032,7 @@ sub poll {
 			}
 			my $killer_plain = _kill_source_display($killedby);
 			my $victim_plain = (defined $killnick && $killnick ne '') ? $killnick : $killtok;
-			foreach my $mod (@modlist) {
-				next if $KILLED ne $oldkilled;
-				_dispatch_scan($mod, 'handle_kill', $killer_plain, $victim_plain, $killreason);
-			}
+			_dispatch_verbose_first_hook( $oldkilled, 'handle_kill', $killer_plain, $victim_plain, $killreason );
 		}
 
 		elsif ($buffer =~ /^(.+?)\sQ\s:(.*)$/)
@@ -1011,13 +1043,7 @@ sub poll {
 			if (defined $quitnick) {
 				my $qn = _sid_to_name($token);
 				my $quitserver = ($qn ne '') ? $qn : substr($token, 0, 2);
-				foreach my $mod (@modlist) {
-					next if $KILLED ne $oldkilled;
-					my $pkg = "Modules::Scan::".$mod;
-					if (my $qh = $pkg->can('handle_quit')) {
-						$qh->($quitnick, $quitreason, $quitserver);
-					}
-				}
+				_dispatch_verbose_first_hook( $oldkilled, 'handle_quit', $quitnick, $quitreason, $quitserver );
 				_uc_drop_nick($quitnick);
 				delete $hosts{lc($quitnick)};
 				delete $nickhash{$token};
@@ -1063,16 +1089,13 @@ sub poll {
 				_uc_join($burstjoinnick, $chan_plain_b, $chanpfx) if $burstjoinnick ne '' && defined $chan_plain_b && $chan_plain_b ne '';
 				my $join_srv = ($burstjoinnick ne '') ? _join_part_server_label($burstjoinnick) : '';
 				$oldkilled = $KILLED;
-				foreach my $mod (@modlist) 
-				{
-					if ($KILLED eq $oldkilled) 
-					{
-						_dispatch_scan($mod, 'handle_join',
-							(defined $burstjoinnick ? $burstjoinnick : ""),
-							(defined $thetarget ? $thetarget : ""),
-							$join_srv);
-					}
-				}
+				_dispatch_verbose_first_hook(
+					$oldkilled,
+					'handle_join',
+					(defined $burstjoinnick ? $burstjoinnick : ""),
+					(defined $thetarget ? $thetarget : ""),
+					$join_srv
+				);
 			}
 		}
 
@@ -1091,16 +1114,13 @@ sub poll {
 				? _join_part_server_label($thenick_plain) : '';
 			$thetarget = quotemeta($thetarget);
 			my $thenick = quotemeta($thenick_plain);
-			foreach my $mod (@modlist) 
-			{
-				if ($KILLED eq $oldkilled) 
-				{
-					_dispatch_scan($mod, 'handle_join',
-						(defined $thenick ? $thenick : ""),
-						(defined $thetarget ? $thetarget : ""),
-						$join_srv);
-				}
-			}
+			_dispatch_verbose_first_hook(
+				$oldkilled,
+				'handle_join',
+				(defined $thenick ? $thenick : ""),
+				(defined $thetarget ? $thetarget : ""),
+				$join_srv
+			);
 		}
 
 		elsif ($buffer =~ /^(.+?)\sK\s(\S+)\s(\S+)/)
@@ -1144,16 +1164,13 @@ sub poll {
 				? _join_part_server_label($thenick_plain) : '';
 			my $thenick = quotemeta($thenick_plain);
 			$thetarget = quotemeta($thetarget);
-			foreach my $mod (@modlist) 
-			{
-				if ($KILLED eq $oldkilled) 
-				{
-					_dispatch_scan($mod, 'handle_part',
-						(defined $thenick ? $thenick : ""),
-						(defined $thetarget ? $thetarget : ""),
-						$part_srv);
-				}
-			}
+			_dispatch_verbose_first_hook(
+				$oldkilled,
+				'handle_part',
+				(defined $thenick ? $thenick : ""),
+				(defined $thetarget ? $thetarget : ""),
+				$part_srv
+			);
 		}
 
 		elsif ($buffer =~ /^(\S+)\sAC\s(\S+)\s+(.+)$/)

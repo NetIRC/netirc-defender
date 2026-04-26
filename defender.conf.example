@@ -58,7 +58,8 @@ mail=irc@example.org
 # CTCP VERSION is ON only if the name "version" appears below.
 # dnsbl — copy dnsbl.conf.example to datadir/dnsbl.conf (one RBL zone per block; see example file)
 # Keep conn_average before dnsbl (and any scan_user G-line module) so join-rate stats stay correct.
-# If you require RBL checks before any CTCP/console sign-on noise, move dnsbl back before verbose/version.
+# signon_fast_console=1 (default) runs verbose+version scan_user before other modules regardless of order below.
+# If you require RBL before CTCP/console on sign-on, set signon_fast_console=0 and put dnsbl before verbose/version.
 modules=conn_average,verbose,version,dnsbl,flood,nickflood,killchan,message,gline,ipinfo,whois,seen
 
 # -----------------------------------------------------------------------------
@@ -95,10 +96,12 @@ OneWord=0
 # 1 = log each CTCP VERSION reply on the control channel | 0 = hide those lines (deny_version still applies)
 version_verbose=0
 
-# Delay between consecutive lines: PRIVMSG to the control channel and globops / wallops (WA).
-# (ms; 0 = off; max 5000). If unset, uses ipinfo_line_delay_ms below, else 400. Only if the
-# previous send was within ~1.5s.
-#control_channel_line_delay_ms=
+# 1 = prioritize console lines: Signed on/CTCP first on connect; Signed off / join / part / kill / nick before slower modules (e.g. seen). 0 = strict modules= order.
+signon_fast_console=1
+
+# Optional: delay between consecutive PRIVMSG to the control channel and globops (WA).
+# (ms; 0 = off; max 5000). Unset = off. Only applies if the previous send was within ~1.5s.
+#control_channel_line_delay_ms=400
 
 # -----------------------------------------------------------------------------
 # 10. Scan module thresholds and options
@@ -119,8 +122,6 @@ dnsbl_cache_ttl=300
 # --- ipinfo (all keys read from defender.conf) ---
 # API token from ipinfo.io (recommended: full geo / mobile / proxy fields)
 ipinfo_token=
-# Line spacing: also the default for control_channel_line_delay_ms if that key is unset (see section 9)
-ipinfo_line_delay_ms=400
 # In-memory cache for API JSON (seconds; 0 = no cache)
 ipinfo_cache_ttl_sec=300
 # At most this many API calls per sliding window (abuse guard)
