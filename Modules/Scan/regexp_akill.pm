@@ -66,6 +66,8 @@ sub stats {
 sub scan_user {
 
 	my ($ident, $host, $serv, $nick, $fullname, $print_always) = @_;
+	$nick     = _dsp($nick);
+	$fullname = _dsp($fullname);
 
 	$connects++;
 

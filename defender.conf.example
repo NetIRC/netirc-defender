@@ -1,6 +1,7 @@
 # =============================================================================
 # NetIRC Defender V3 — defender.conf.example
-# Copy to defender.conf and edit. defender.conf is gitignored.
+# Copy to defender.conf next to defender.pl (same directory; that path is $curdir).
+# Policy files (deny_version.conf, dnsbl.conf, …) live under datadir= below. defender.conf is gitignored.
 # Format: key=value  |  lines starting with # are comments  |  no spaces around =
 # =============================================================================
 
@@ -48,10 +49,15 @@ mail=irc@example.org
 # -----------------------------------------------------------------------------
 # 5. Scan modules (comma-separated list, no spaces)
 # -----------------------------------------------------------------------------
-# CTCP VERSION (client fingerprint / deny_version.conf): ON only if the name
-# "version" appears in the list below.
+# Suggested signup stack (each optional except as noted):
+#   conn_average — burst rate warning (GLOBOPS + optional duplicate on control channel; no auto G-line)
+#   dnsbl        — G-line if client IPv4 is listed (needs datadir/dnsbl.conf)
+#   version      — CTCP VERSION + deny_version.conf (needs datadir/deny_version.conf)
+# regexp_akill is documented in README but not loaded here by default; add it to the list below if needed.
+# CTCP VERSION is ON only if the name "version" appears below.
 # dnsbl — copy dnsbl.conf.example to datadir/dnsbl.conf (one RBL zone per block; see example file)
-modules=conn_average,flood,dnsbl,nickflood,killchan,message,verbose,gline,ipinfo,whois,seen
+# Keep conn_average before dnsbl (and any scan_user G-line module) so join-rate stats stay correct.
+modules=conn_average,dnsbl,version,flood,nickflood,killchan,message,verbose,gline,ipinfo,whois,seen
 
 # -----------------------------------------------------------------------------
 # 6. Paths and persistent counters
@@ -84,7 +90,7 @@ authtype=client
 # ugly=1 = plain text (no mIRC colour codes)  |  ugly=0 = colour-formatted
 ugly=0
 OneWord=0
-# Log VERSION replies on #console when module "version" is loaded (see modules= above).
+# Log VERSION replies on the control channel when module "version" is loaded (see modules= above).
 version_verbose=1
 
 # Delay between consecutive lines: PRIVMSG to the control channel and globops / wallops (WA).
@@ -100,8 +106,10 @@ version_verbose=1
 # Built-in defaults include Undernet-style X, C and E, plus ChanServ, NickServ, MemoServ, etc.
 #gline_protect_nicks=Global,MyCustomService
 
-# conn_average — connection burst rate (per minute)
-conn_average_max=3
+# conn_average — max sign-ons per minute before GLOBOPS (+ optional duplicate on control channel); 0 = disabled
+conn_average_max=30
+# conn_average — repeat the same warning on the control channel (0 = GLOBOPS only)
+conn_average_mirror_console=1
 
 # dnsbl — IPv4 lookup cache TTL (seconds; 0 = disable cache)
 dnsbl_cache_ttl=300
@@ -120,7 +128,7 @@ ipinfo_burst_window_sec=60
 # HTTP timeout per request to ipinfo.io (seconds)
 ipinfo_http_timeout_sec=10
 
-# regexp_akill — max wall-clock time per client for all patterns (ReDoS guard; 0 = off)
+# regexp_akill — only used when regexp_akill is in modules= (max wall-clock time per client per scan; ReDoS guard; 0 = off)
 regexp_akill_alarm_sec=3
 
 # flood — per-channel message thresholds, temporary +f lock

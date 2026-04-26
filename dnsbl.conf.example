@@ -4,7 +4,7 @@
 # The dnsbl module loads:  <datadir>/dnsbl.conf
 # Format: Config::General (see bundled Config::General). One <zone> block per
 # RBL. Queries use IPv4:  <reversed-ip>.<zone>  (this build is IPv4-only).
-#   duration  — G-line lifetime in seconds
+#   duration  — G-line lifetime in seconds (86400 = 24 hours)
 #   reason    — G-line / notice text; $ip is replaced. Leading ":" is OK.
 #   <reply>   — last octet of 127.0.0.N from DNS → short label (per RBL docs)
 # Update the `network=` query string for DroneBL to match your network if you
@@ -30,5 +30,5 @@
 		255	= Uncategorized threat class
 	</reply>
 	reason		= :For more information, visit https://dronebl.org/lookup?ip=$ip&network=YourNetwork
-	duration	= 7200
+	duration	= 86400
 </dnsbl.dronebl.org>

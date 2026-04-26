@@ -16,6 +16,7 @@ my $warned = 0;
 my $mirc = 0;
 my $winbot = 0;
 my $xchat = 0;
+my $hexchat = 0;
 my $bitchx = 0;
 my $trillian = 0;
 my $eggdrop = 0;
@@ -31,8 +32,10 @@ my $pjirc = 0;
 my $cgiirc = 0;
 my $iroffer = 0;
 
-my %blacklist;
+my @deny_version_rows;
 my @version_rules;
+
+use constant _DENY_VERSION_PATTERN_MAX => 1024;
 
 # message.pl passes quotemeta() strings into scan hooks; undo for CTCP matching and display.
 sub _dsp {
@@ -44,12 +47,17 @@ sub _dsp {
 
 sub _rebuild_version_rules {
 	@version_rules = ();
-	for my $label (sort keys %blacklist) {
+	for my $row (@deny_version_rows) {
+		my ($label, $raison, $action) = @$row;
 		next unless defined $label && $label ne '';
-		my $entry = $blacklist{$label};
-		next unless defined $entry;
-		my ($raison, $action) = split(/\t/, $entry);
 		next unless defined $action && defined $raison;
+		if (length($label) > _DENY_VERSION_PATTERN_MAX) {
+			warn "[version] skip deny_version pattern (longer than "
+				. _DENY_VERSION_PATTERN_MAX
+				. " chars): "
+				. substr($label, 0, 80) . "…\n";
+			next;
+		}
 		my $qr = eval { qr/^\001VERSION ($label)\001/i };
 		if (!$qr) {
 			warn "[version] skip invalid deny_version pattern: $label — $@\n";
@@ -99,6 +107,7 @@ sub stats {
 	my $peggdrop  = ($connects ? $eggdrop/$connects*100 : 0);
 	my $pwinbot = ($connects ? $winbot/$connects*100 : 0);
 	my $pxchat = ($connects ? $xchat/$connects*100 : 0);
+	my $phexchat = ($connects ? $hexchat/$connects*100 : 0);
 	my $pbitchx = ($connects ? $bitchx/$connects*100 : 0);
 	my $ptrillian = ($connects ? $trillian/$connects*100 : 0);
 	my $pircii = ($connects ? $ircii/$connects*100 : 0);
@@ -111,7 +120,7 @@ sub stats {
 	my $ppjirc = ($connects ? $pjirc/$connects*100 : 0);
 	my $pcgiirc = ($connects ? $cgiirc/$connects*100 : 0);
 	my $piroffer = ($connects ? $iroffer/$connects*100 : 0);
-	my $scantotal = $mirc+$eggdrop+$winbot+$xchat+$bitchx+$trillian+$kvirc+$ircii+$irssi+$hydrairc+$darkbot+$nulls+$infobot+$muh+$cgiirc+$pjirc+$iroffer;
+	my $scantotal = $mirc+$eggdrop+$winbot+$xchat+$hexchat+$bitchx+$trillian+$kvirc+$ircii+$irssi+$hydrairc+$darkbot+$nulls+$infobot+$muh+$cgiirc+$pjirc+$iroffer;
 	my $unresponsive = $connects - $scantotal;
 	my $punresponsive = ($connects ? $unresponsive/$connects*100 : 0);
 	$punresponsive = $punresponsive ? sprintf("%.3f", $punresponsive) : 0;
@@ -122,6 +131,7 @@ sub stats {
 	$pkvirc = $pkvirc ? sprintf("%.3f", $pkvirc) : 0;
 	$pwinbot = $pwinbot ? sprintf("%.3f", $pwinbot) : 0;
 	$pxchat = $pxchat ? sprintf("%.3f", $pxchat) : 0;
+	$phexchat = $phexchat ? sprintf("%.3f", $phexchat) : 0;
 	$pbitchx = $pbitchx ? sprintf("%.3f", $pbitchx) : 0;
 	$ptrillian = $ptrillian ? sprintf("%.3f", $ptrillian) : 0;
 	$peggdrop = $peggdrop ? sprintf("%.3f", $peggdrop) : 0;
@@ -135,6 +145,7 @@ sub stats {
 	main::message("mIRC:         \002$mirc\002 ($pmirc%)");
 	main::message("WinBot:       \002$winbot\002 ($pwinbot%)");
 	main::message("X-Chat:       \002$xchat\002 ($pxchat%)");
+	main::message("HexChat:      \002$hexchat\002 ($phexchat%)");
 	main::message("BitchX:       \002$bitchx\002 ($pbitchx%)");
 	main::message("Trillian:     \002$trillian\002 ($ptrillian%)");
 	main::message("Eggdrop:      \002$eggdrop\002 ($peggdrop%)");
@@ -178,6 +189,9 @@ sub _handle_version_ctcp {
 	}
 	elsif ($notice =~ /^\001VERSION WinBot.+\001/) {
 		$winbot++;
+	}
+	elsif ($notice =~ /^\001VERSION HexChat.*\001/i) {
+		$hexchat++;
 	}
 	elsif ($notice =~ /^\001VERSION xchat.+\001/) {
 		$xchat++;
@@ -327,16 +341,31 @@ sub init {
         }
         main::provides("version");
 
-	%blacklist = ();
+	@deny_version_rows = ();
+	my %seen_pattern;
 
 	open(BL, "<$main::dir/deny_version.conf") or print "Missing deny_version.conf file!\n";
 	
 	while (<BL>) {
 		chomp;
-		my ($version, $action, $reason) = split(/\t/);
-		if (defined($version) && defined($action) && defined($reason)) {
-			$blacklist{$version} = "$reason\t$action";
+		next if /^\s*$/;
+		next if /^\s*#/;
+		my ($version, $action, $reason) = split(/\t/, $_, 3);
+		next unless defined $reason;
+		for ($version, $action, $reason) {
+			s/^\s+|\s+$//g if defined;
 		}
+		next if $version eq '';
+		$action = uc $action;
+		unless ($action eq 'G' || $action eq 'K') {
+			warn "[version] skip deny_version line (action must be G or K): $version\n";
+			next;
+		}
+		if ($seen_pattern{$version}++) {
+			warn "[version] deny_version duplicate pattern skipped (first line in file wins): $version\n";
+			next;
+		}
+		push @deny_version_rows, [ $version, $reason, $action ];
 	}
 
 	close BL;

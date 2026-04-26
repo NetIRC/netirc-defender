@@ -16,6 +16,12 @@ my $peak = 0;
 my $ptime = "(Never)";
 my $pbroken = "(Never)";
 
+sub _mirror_console {
+	my $v = $main::dataValues{"conn_average_mirror_console"};
+	return 1 if !defined $v || $v eq '';
+	return $v ne "0";
+}
+
 sub handle_topic
 {
 }
@@ -49,9 +55,16 @@ sub scan_user
 	$conns++;
 	if (time > ($currtime+60))
 	{
-		if ($conns > $max_conns_per_min)
+		if ($max_conns_per_min > 0 && $conns > $max_conns_per_min)
 		{
-			main::globops("\002WARNING!\002 Connections in the last minute was \002$conns\002, which is above the maximum safe connections of $max_conns_per_min per minute!");
+			my $msg =
+				"\002WARNING!\002 Connections in the last minute was \002$conns\002, which is above the maximum safe connections of $max_conns_per_min per minute!";
+			main::globops($msg);
+			if (_mirror_console()) {
+				main::message(
+					"\002[CONN_AVERAGE]\002 $msg Automatic blocks: \002dnsbl\002 (IP), \002version\002 + deny_version.conf (CTCP VERSION); optional \002regexp_akill\002 if in modules=."
+				);
+			}
 			$pbroken = localtime;
 		}
 		if ($conns > $peak)
@@ -86,7 +99,13 @@ sub init {
 
 	$currtime = time;
 	$peak = 0;
-	$max_conns_per_min = $main::dataValues{"conn_average_max"};
+	my $raw = $main::dataValues{"conn_average_max"};
+	if ( !defined $raw || $raw eq '' || $raw !~ /^[0-9]+$/ ) {
+		$max_conns_per_min = 30;
+	}
+	else {
+		$max_conns_per_min = int($raw);
+	}
 }
 
 1;

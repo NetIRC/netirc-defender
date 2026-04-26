@@ -1,4 +1,26 @@
 # Tab-separated: <version-regex> <G|K> <reason>
-# G = G-line, K = KILL (see version.pm).
-# Add one rule per line (no # prefix on rule lines).
+# G = G-line, K = warn notice only (see version.pm).
+# Lines starting with # and blank lines are ignored. Prefer no tabs inside <reason>.
+# Duplicate patterns: second copy skipped (first line wins); warning in logs.
+# Rules are evaluated top to bottom; first match applies. Put specific patterns first,
+# catch-alls last.
+#
+# --- HexChat (block all default VERSION replies) ---
+# Default reply is typically "VERSION HexChat " + version + OS info; Windows builds often
+# add CPU arch in brackets. Example shape:
+#   VERSION HexChat 2.9.1 [x86] / Windows 8 [1.46GHz]
+# This line matches any reply whose VERSION payload starts with "HexChat" (/i). It does
+# NOT match: no VERSION reply (e.g. irc_hide_version and no CTCP override), or a custom
+# VERSION string that never contains "HexChat" — combine with dnsbl, IRCd limits, and optionally
+# regexp_akill (if enabled in modules=).
+HexChat.*	G	HexChat client not permitted on this network
+#
+# --- Optional: block only specific versions (place BEFORE HexChat.* so they match first) ---
+# Payload is the text between "VERSION " and the final \001. Escape dots: 2\.16\.2
+# Use (?![0-9]) after a patch number so 2.16.2 does not match 2.16.20. Example:
+#   HexChat 2\.16\.(?:0|1|2)(?![0-9]).*	G	…
+#
+# --- Other clients ---
+#   FooClient 1\.0\.3(?![0-9]).*	G	…
+#
 subseven.+	G	Subseven trojan drone

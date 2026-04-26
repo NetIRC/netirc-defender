@@ -1,0 +1,12 @@
+# NetIRC Defender V3 — regexp_akill.conf
+# ---------------------------------------------------------------------------
+# Copy to datadir as regexp_akill.conf (see defender.conf: datadir=).
+# One rule per line:  <Perl regex>	<reason text>
+# Lines starting with # and blank lines are ignored. Match is case-insensitive
+# against:  nick!ident@host realname  (single line built at sign-on; see regexp_akill.pm).
+# Prefer short patterns; heavy regexes are time-limited (regexp_akill_alarm_sec).
+# You can also manage rules live: regexp_akill add / del / list on the control channel.
+# ---------------------------------------------------------------------------
+#
+# Example (uncomment to use — tune to your network; wrong patterns cause false G-lines):
+#^evil!~?bad\@123\.456\..*	Automated sign-on pattern (example)
