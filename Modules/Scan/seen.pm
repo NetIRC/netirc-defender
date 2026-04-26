@@ -294,8 +294,21 @@ sub _handle_seen {
 				"  \00306Introducing link:\017 \00310$int\017"
 			);
 		}
-		_cmsg_away_from_info($info);
 		_cmsg("  Channels: $ch_t", "  \00306Channels:\017 \00310$ch_t\017");
+		my $did_live_away = 0;
+		if (($info->{isservice} // 0) != 1 && defined &main::request_live_whois) {
+			my $ok_live = eval { main::request_live_whois($requester, $n, 'SEEN'); 1 };
+			if ($ok_live) {
+				$did_live_away = 1;
+				_cmsg(
+					"\002[SEEN]\002 Live IRCd away lookup requested for \002$n\002 (wait).",
+					"\00305\002[SEEN]\017 \00306Live IRCd away lookup requested for\017 \00302\002$n\017\00306 (wait).\017"
+				);
+			}
+		}
+		if (!$did_live_away) {
+			_cmsg_away_from_info($info);
+		}
 		return;
 	}
 

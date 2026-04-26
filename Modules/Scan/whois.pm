@@ -148,19 +148,6 @@ sub _emit_whois_lines {
 		($p, $c) = _whois_row('Account', $acct);
 		_cmsg($p, $c);
 	}
-	if ($away) {
-		my $show = $aw_m;
-		$show = substr($show, 0, 220) . '...' if length($show) > 220;
-		my $plain_v = ($show ne '') ? "yes — $show" : 'yes (empty message)';
-		my $col_v = ($show ne '')
-			? "\00306yes — \00302$show\017"
-			: "\00306yes (empty message)\017";
-		($p, $c) = _whois_row('Away', $plain_v, $col_v);
-		_cmsg($p, $c);
-	} else {
-		($p, $c) = _whois_row('Away', 'no');
-		_cmsg($p, $c);
-	}
 	if ($svc) {
 		($p, $c) = _whois_row('Sign-on', 'n/a (service; link time not a client sign-on clock)');
 	} elsif (defined $sts && $sts =~ /^\d+$/ && $sts > 0) {
@@ -224,12 +211,16 @@ sub _handle_whois {
 	}
 
 	_emit_whois_lines($info);
+	my $target_live = _whois_safe($info->{nick} // $target);
+	if (($info->{isservice} // 0) == 1) {
+		return;
+	}
 	if (defined &main::request_live_whois) {
-		my $ok_live = eval { main::request_live_whois($nick, $target); 1 };
+		my $ok_live = eval { main::request_live_whois($nick, $target_live, 'WHOIS'); 1 };
 		if ($ok_live) {
 			_cmsg(
-				"\002[WHOIS]\002 Live IRCd idle lookup requested for \002$target\002 (wait).",
-				"\00305\002[WHOIS]\017 \00306Live IRCd idle lookup requested for\017 \00302\002$target\017\00306 (wait).\017"
+				"\002[WHOIS]\002 Live IRCd idle/away/account lookup requested for \002$target_live\002 (wait).",
+				"\00305\002[WHOIS]\017 \00306Live IRCd idle/away/account lookup requested for\017 \00302\002$target_live\017\00306 (wait).\017"
 			);
 		}
 	}

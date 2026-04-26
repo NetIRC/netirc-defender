@@ -562,15 +562,19 @@ sub service_part
 
 sub request_live_whois
 {
-	my ($requester_nick, $target_nick) = @_;
+	my ($requester_nick, $target_nick, $tag) = @_;
 	return 0 unless defined $target_nick && $target_nick ne '';
 	my $src = bot_numnick();
 	return 0 unless defined $src && $src ne '';
+	$tag = uc($tag // 'WHOIS');
+	$tag = 'WHOIS' unless $tag =~ /^(WHOIS|SEEN)$/;
 	my $dst = $rnickhash{lc($target_nick)} // $target_nick;
 	$live_whois_pending{lc($target_nick)} = {
 		requester => (defined $requester_nick ? $requester_nick : ''),
 		ts        => time,
 		target    => $target_nick,
+		tag       => $tag,
+		away_seen => 0,
 	};
 	&rawirc("$src W $dst :$target_nick");
 	return 1;
@@ -831,7 +835,10 @@ sub idle_timers {
 			next unless defined $ts && $ts =~ /^\d+$/;
 			next if ($now - $ts) < LIVE_WHOIS_TIMEOUT_SEC;
 			my $wn = $r->{target} // $k;
-			main::message("\00305\002[WHOIS]\017 \00306Live idle for\017 \00302\002$wn\017\00306:\017 \00304\002n/a\017 \00306(IRCd timeout)\017");
+			my $tag = $r->{tag} // 'WHOIS';
+			if ($tag eq 'WHOIS') {
+				main::message("\00305\002[$tag]\017 \00306Live idle for\017 \00302\002$wn\017\00306:\017 \00304\002n/a\017 \00306(IRCd timeout)\017");
+			}
 			delete $live_whois_pending{$k};
 		}
 	}
@@ -1481,8 +1488,34 @@ sub poll {
 			my $idle = $4;
 			my $bot = bot_numnick();
 			if (defined $bot && $rq eq $bot && exists $live_whois_pending{lc($wn)}) {
-				my $idle_h = _fmt_idle_human($idle);
-				main::message("\00305\002[WHOIS]\017 \00306Live idle for\017 \00302\002$wn\017\00306:\017 \00302\002$idle_h\017 \00306(IRCd clock)\017");
+				my $tag = ($live_whois_pending{lc($wn)}{tag} // 'WHOIS');
+				if ($tag eq 'WHOIS') {
+					my $idle_h = _fmt_idle_human($idle);
+					main::message("\00305\002[$tag]\017 \00306Live idle for\017 \00302\002$wn\017\00306:\017 \00302\002$idle_h\017 \00306(IRCd clock)\017");
+				}
+			}
+		}
+
+		elsif ($buffer =~ /^(\S+)\s+301\s+(\S+)\s+(\S+)\s+:(.*)$/)
+		{
+			my $rq = $2;
+			my $wn = $3;
+			my $away_msg = defined $4 ? $4 : '';
+			my $bot = bot_numnick();
+			if (defined $bot && $rq eq $bot && exists $live_whois_pending{lc($wn)}) {
+				my $ref = $live_whois_pending{lc($wn)};
+				$ref->{away_seen} = 1 if ref($ref) eq 'HASH';
+				my $wlc = lc($wn);
+				if (exists $hosts{$wlc}) {
+					$hosts{$wlc}{away} = 1;
+					$hosts{$wlc}{away_msg} = $away_msg;
+					_mark_user_activity($wn);
+				}
+				my $show = $away_msg;
+				$show = substr($show, 0, 220) . '...' if length($show) > 220;
+				$show = '(empty message)' if $show eq '';
+				my $tag = ($ref->{tag} // 'WHOIS');
+				main::message("\00305\002[$tag]\017 \00306Live away for\017 \00302\002$wn\017\00306:\017 \00302yes\017 \00310$show\017");
 			}
 		}
 
@@ -1503,8 +1536,9 @@ sub poll {
 					if (exists $hosts{$wlc}) {
 						$hosts{$wlc}{account} = $acct;
 					}
-					if ($old_acct eq '' || lc($old_acct) ne lc($acct)) {
-						main::message("\00305\002[WHOIS]\017 \00306Live account for\017 \00302\002$wn\017\00306:\017 \00302\002$acct\017");
+					my $tag = ($live_whois_pending{lc($wn)}{tag} // 'WHOIS');
+					if ($tag eq 'WHOIS' && ($old_acct eq '' || lc($old_acct) ne lc($acct))) {
+						main::message("\00305\002[$tag]\017 \00306Live account for\017 \00302\002$wn\017\00306:\017 \00302\002$acct\017");
 					}
 				}
 			}
@@ -1515,7 +1549,17 @@ sub poll {
 			my $rq = $2;
 			my $wn = $3;
 			my $bot = bot_numnick();
-			if (defined $bot && $rq eq $bot) {
+			if (defined $bot && $rq eq $bot && exists $live_whois_pending{lc($wn)}) {
+				my $ref = $live_whois_pending{lc($wn)};
+				if (ref($ref) eq 'HASH' && !($ref->{away_seen} // 0)) {
+					my $tag = ($ref->{tag} // 'WHOIS');
+					my $wlc = lc($wn);
+					if (exists $hosts{$wlc}) {
+						$hosts{$wlc}{away} = 0;
+						delete $hosts{$wlc}{away_msg};
+					}
+					main::message("\00305\002[$tag]\017 \00306Live away for\017 \00302\002$wn\017\00306:\017 \00302no\017");
+				}
 				delete $live_whois_pending{lc($wn)};
 			}
 		}
