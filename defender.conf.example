@@ -99,7 +99,7 @@ version_verbose=0
 
 # Optional: delay between consecutive PRIVMSG to the control channel and globops (WA).
 # (ms; 0 = off; max 5000). Unset = off. Only applies if the previous send was within ~1.5s.
-#control_channel_line_delay_ms=400
+control_channel_line_delay_ms=300
 
 # -----------------------------------------------------------------------------
 # 10. Scan module thresholds and options
@@ -121,14 +121,14 @@ attack_mode_hold_sec=600
 # conn_average — repeat the same warning on the control channel (0 = GLOBOPS only)
 conn_average_mirror_console=1
 # conn_average — emergency auto-block mode: when threshold is exceeded, new clients are G-lined.
-# 0 = disabled (default), 1 = enabled
-conn_average_autoblock=0
+# 0 = disabled, 1 = enabled
+conn_average_autoblock=1
 # How long the emergency block stays active once triggered (seconds)
-conn_average_autoblock_duration_sec=900
+conn_average_autoblock_duration_sec=300
 # While attack mode is ON, force conn_average autoblock even if conn_average_autoblock=0
 conn_average_autoblock_attack_mode=1
 # attack-mode override for conn_average_autoblock_duration_sec
-attack_conn_average_autoblock_duration_sec=1200
+attack_conn_average_autoblock_duration_sec=900
 # Reason used for auto G-lines in emergency mode
 conn_average_autoblock_reason=Connection flood emergency block
 
@@ -172,8 +172,7 @@ attack_version_ctcp_global_burst=50
 attack_version_ctcp_global_window_sec=10
 attack_version_ctcp_global_mute_sec=120
 
-# regexp_akill — only used when regexp_akill is in modules= (max wall-clock time per client per scan; ReDoS guard; 0 = off)
-regexp_akill_alarm_sec=3
+# regexp_akill_alarm_sec is not used in this profile; keep regexp_akill disabled unless explicitly enabled in modules=
 
 # flood — per-channel message thresholds, temporary +f lock
 flood_log=1
