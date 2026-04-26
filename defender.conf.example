@@ -51,13 +51,15 @@ mail=irc@example.org
 # -----------------------------------------------------------------------------
 # Suggested signup stack (each optional except as noted):
 #   conn_average — burst rate warning (GLOBOPS + optional duplicate on control channel; no auto G-line)
-#   dnsbl        — G-line if client IPv4 is listed (needs datadir/dnsbl.conf)
-#   version      — CTCP VERSION + deny_version.conf (needs datadir/deny_version.conf)
+#   verbose      — "Signed on" on the control channel (put before dnsbl so RBL lookups do not delay it)
+#   version      — CTCP VERSION + deny_version.conf (before dnsbl avoids waiting on RBL before CTCP)
+#   dnsbl        — G-line if client IPv4 is listed (needs datadir/dnsbl.conf); gethostbyname per zone is synchronous
 # regexp_akill is documented in README but not loaded here by default; add it to the list below if needed.
 # CTCP VERSION is ON only if the name "version" appears below.
 # dnsbl — copy dnsbl.conf.example to datadir/dnsbl.conf (one RBL zone per block; see example file)
 # Keep conn_average before dnsbl (and any scan_user G-line module) so join-rate stats stay correct.
-modules=conn_average,dnsbl,version,flood,nickflood,killchan,message,verbose,gline,ipinfo,whois,seen
+# If you require RBL checks before any CTCP/console sign-on noise, move dnsbl back before verbose/version.
+modules=conn_average,verbose,version,dnsbl,flood,nickflood,killchan,message,gline,ipinfo,whois,seen
 
 # -----------------------------------------------------------------------------
 # 6. Paths and persistent counters
@@ -90,8 +92,8 @@ authtype=client
 # ugly=1 = plain text (no mIRC colour codes)  |  ugly=0 = colour-formatted
 ugly=0
 OneWord=0
-# Log VERSION replies on the control channel when module "version" is loaded (see modules= above).
-version_verbose=1
+# 1 = log each CTCP VERSION reply on the control channel | 0 = hide those lines (deny_version still applies)
+version_verbose=0
 
 # Delay between consecutive lines: PRIVMSG to the control channel and globops / wallops (WA).
 # (ms; 0 = off; max 5000). If unset, uses ipinfo_line_delay_ms below, else 400. Only if the

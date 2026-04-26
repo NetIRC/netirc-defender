@@ -45,6 +45,15 @@ sub _dsp {
 	return $s;
 }
 
+# Control-channel lines "Version reply for …" (deny_version / G-line still always runs).
+sub _version_reply_to_console {
+	my $v = $main::version_verbose;
+	if ( defined $v && $v ne '' ) {
+		return $v !~ /^(0|false|no)$/i;
+	}
+	return main::depends("verbose");
+}
+
 sub _rebuild_version_rules {
 	@version_rules = ();
 	for my $row (@deny_version_rows) {
@@ -253,7 +262,7 @@ sub _handle_version_ctcp {
 		my $vreply = $1;
 		if (defined $vreply) {
 			print "Version reply for $nick is \"$vreply\"\n" if $main::debug;
-			if (main::depends("verbose") || $main::version_verbose) {
+			if ( _version_reply_to_console() ) {
 				if ($main::NETJOIN == 0) {
 					if ($main::ugly) {
 						main::message("Version reply for $nick is $vreply");
