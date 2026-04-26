@@ -149,13 +149,13 @@ Only modules **listed** in `defender.conf` are active. Names must match `Modules
 | **verbose** | Announces joins/parts/modes/KILLs/etc. on the control channel. | None (automatic). |
 | **gline** | Manages G-lines (local cache + IRCd); syncs GL traffic from the link. | **`gline`**, **`gline help`** — help text. **`gline add …`**, **`gline del …`**, **`gline list`**, **`gline del all`**. Shorthand: **`gline <target> [time] [reason]`** (same as `gline add`). **oper**. |
 | **ipinfo** | GeoIP / host info via ipinfo.io (token in `defender.conf`). | **`ip`** or **`ip <target>`** (address, hostname, or nick) — **oper**. |
-| **whois** | Snapshot from the P10 client cache (not the IRCd’s full `/WHOIS`). Includes **away** and away message when the service has seen P10 `A` (away) traffic for that user while connected. The command also requests live IRCd WHOIS idle (`317`) and account (`330`) and prints them when received. | **`whois <nick>`** or **`whois nick <nick>`** — **oper**. |
-| **seen** | Last **quit** / **kill** for a nick, or **online** from the P10 cache, with **away**, server and channels for online users. Changing nick **removes** the old nick from last-seen. | **`seen <nick>`** — **oper**; `datadir/seen_state.sto` (pruned, persisted). |
+| **whois** | Snapshot from the P10 client cache (not the IRCd’s full `/WHOIS`): user/host, IP, account if known, sign-on, server, channels, privileges. The command also requests live IRCd WHOIS **away** (`301`), **idle** (`317`) and **account** (`330`) and prints them when received. | **`whois <nick>`** or **`whois nick <nick>`** — **oper**. |
+| **seen** | Last **quit** / **kill** for a nick, or **online** from the P10 cache (server/channels). For online users it can trigger live IRCd **away** lookup to correct stale pre-link away state. Changing nick **removes** the old nick from last-seen. | **`seen <nick>`** — **oper**; `datadir/seen_state.sto` (pruned, persisted). |
 | **cgiirc** | Detects unauthorised CGI:IRC via VERSION notices; optional `cgiirc.conf` whitelist. | None (automatic). |
 
 To see the **exact** help string a module registers, use **`help <module>`** on the control channel (same text as in the bot output).
 
-**Away / live WHOIS data:** away state in **whois** and **seen** (online users) comes from the P10 link cache: it is accurate after the hub has sent the relevant `A` lines while Defender is linked (e.g. during live traffic or netburst). Users who were already away before the service linked may show as not away until they toggle away or the state appears in burst. The **whois** command asks the IRCd for live idle (`317`) and account (`330`) and prints those values when available; if idle reply does not arrive within timeout, it reports `n/a (IRCd timeout)`.
+**Away / live WHOIS data:** away state in the P10 cache is accurate after relevant `A` lines have been seen while Defender is linked. Users already away before link-up can be stale; **whois** now asks IRCd live away (`301`) and **seen** can request live away for online users, so displayed state is corrected on demand. **whois** also asks for live idle (`317`) and account (`330`); if idle reply does not arrive within timeout, it reports `n/a (IRCd timeout)`.
 
 ## Project layout (high level)
 
