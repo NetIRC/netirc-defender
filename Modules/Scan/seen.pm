@@ -62,6 +62,8 @@ sub _deny_ircop_only {
 sub _safe {
 	my ($s) = @_;
 	return '' unless defined $s;
+	$s =~ s/\x03(?:\d{1,2}(?:,\d{1,2})?)?//g;
+	$s =~ s/[\x02\x0F\x16\x1D\x1F]//g;
 	$s =~ s/[\x00-\x1F\x7F]//g;
 	return $s;
 }
