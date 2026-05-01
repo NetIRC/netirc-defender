@@ -230,8 +230,8 @@ sub _handle_whois {
 
 sub cmd_help {
 	_cmsg(
-		"\002[WHOIS]\002 \002whois <nick>\002 — link cache: user\@host, Seen IP, account (if known), sign-on, server, channels, privileges. Also requests live IRCd WHOIS away/idle/account (301/317/330) when supported.",
-		"\00305\002[WHOIS]\017 \00302whois <nick>\017 \00306— link cache + live IRCd away/idle/account lookup (301/317/330) when available.\017"
+		"\002[WHOIS]\002 \002whois <nick>\002 — link cache: user\@host, Seen IP, account (if known), sign-on, server, channels, privileges. Also asks the IRCd for live away, idle, and account when supported.",
+		"\00305\002[WHOIS]\017 \00302whois <nick>\017 \00306— link cache; live away, idle, and account from the IRCd when available.\017"
 	);
 }
 
