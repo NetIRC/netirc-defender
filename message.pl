@@ -12,6 +12,16 @@ sub _cmsg {
 	message(($ugly ? $plain : $colored));
 }
 
+sub _info_defender_footer {
+	my ($snap) = @_;
+	my $d = $snap->{defender_server} // '';
+	return if $d eq '';
+	_cmsg(
+		"  \002This instance\002 (\002$d\002): yep, that's me on the link — hehe.",
+		"\00305  \00302\002This instance\017 (\00310\002$d\017\00302)\00306: yep, that's me on the link — hehe.\017"
+	);
+}
+
 sub _is_ircop {
 	my ($nick) = @_;
 	return 0 unless defined $nick && $nick ne '';
@@ -321,8 +331,8 @@ sub msghandler {
 					"\00306Channels are names observed on this link during the current session (JOIN traffic only), not a complete map of the network.\017"
 				);
 				_cmsg(
-					"\002info users\002: client counts by uplink server; \002info users list\002: capped nick list.",
-					"\00302\002info users\017\00306: client counts by uplink server; \00302\002info users list\017\00306: capped nick list.\017"
+					"\002info users\002: cached client counts per known server (\0020\002 if none homed there); \002info users list\002: capped nick list.",
+					"\00302\002info users\017\00306: counts per known server (\00302\0020\00306 if none homed there); \00302\002info users list\017\00306: capped nick list.\017"
 				);
 				_cmsg(
 					"\002info chans\002: per uplink server, how many distinct channel names had at least one JOIN from a user on that server (same #channel can appear on several servers — row counts do not sum to the global total). \002info chans list\002: flat list of global distinct names (capped).",
@@ -378,6 +388,7 @@ sub msghandler {
 			}
 			if ($sub eq 'servers') {
 				$dump->("Servers", $snap->{servers});
+				_info_defender_footer($snap);
 				return;
 			}
 			if ($sub eq 'users') {
@@ -388,11 +399,12 @@ sub msghandler {
 				my $rows = $snap->{users_by_server} || [];
 				my $total = @{ $snap->{users} };
 				_cmsg(
-					"\002Users on link\002: \002$total\002 client(s) in cache, grouped by uplink server (highest count first):",
-					"\00305\002Users on link\017: \00302\002$total\00306 client(s) in cache, grouped by uplink server (highest count first):\017"
+					"\002Users on link\002: \002$total\002 client(s) in cache, by server (\0020\002 = none homed there). Sorted by count, then name:",
+					"\00305\002Users on link\017: \00302\002$total\00306 client(s) in cache, by server (\00302\0020\00306 = none homed there). Sorted by count, then name:\017"
 				);
 				if (!@$rows) {
 					_cmsg("  (no clients in cache.)", "\00306  (no clients in cache.)\017");
+					_info_defender_footer($snap);
 					return;
 				}
 				for my $row (@$rows) {
@@ -402,6 +414,7 @@ sub msghandler {
 						sprintf("\00305  \00302\002%d\017  \00306%s\017", $cnt, $srv)
 					);
 				}
+				_info_defender_footer($snap);
 				_cmsg(
 					"For a partial nick list: \002info users list\002.",
 					"\00306For a partial nick list: \00302\002info users list\017\00306.\017"

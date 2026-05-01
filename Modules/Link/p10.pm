@@ -186,39 +186,72 @@ sub _srv_disp_from_assigned {
 	return '';
 }
 
+sub _p10_numeric_for_plain_lc {
+	my ($lc) = @_;
+	return undef unless defined $lc && $lc ne '';
+	my $tok = $rnickhash{$lc};
+	return $tok if defined $tok && length($tok) >= 2;
+	for my $t (keys %nickhash) {
+		next unless defined $nickhash{$t} && $nickhash{$t} ne '';
+		return $t if lc( $nickhash{$t} ) eq $lc;
+	}
+	return undef;
+}
+
 sub _info_uplink_label {
-	my ($joining_nick_plain, $p10_numeric_token) = @_;
-	if (defined $joining_nick_plain && $joining_nick_plain ne '') {
-		my $tok = $rnickhash{ lc($joining_nick_plain) };
-		if (defined $tok && length($tok) >= 2) {
-			my $n = _sid_to_name($tok);
-			return $n if $n ne '';
-			my $k = lc($joining_nick_plain);
-			if (exists $hosts{$k} && defined $hosts{$k}{p10_intro} && $hosts{$k}{p10_intro} ne '') {
-				my $via = _sid_to_name($hosts{$k}{p10_intro});
-				return $via if $via ne '';
-			}
-			if (exists $hosts{$k} && defined $hosts{$k}{server} && $hosts{$k}{server} ne '') {
-				my $s = $hosts{$k}{server};
-				return $s if length($s) > 2 || $s =~ /\./;
-			}
-			return '[' . substr($tok, 0, 2) . ']';
+	my ( $joining_nick_plain, $p10_numeric_token ) = @_;
+	my $k = ( defined $joining_nick_plain && $joining_nick_plain ne '' ) ? lc($joining_nick_plain) : '';
+
+	my $tok;
+	if ( defined $p10_numeric_token && $p10_numeric_token ne '' && length($p10_numeric_token) >= 2 ) {
+		$tok = $p10_numeric_token;
+	}
+	elsif ( $k ne '' ) {
+		$tok = _p10_numeric_for_plain_lc($k);
+	}
+	else {
+		$tok = undef;
+	}
+
+	if ( $k ne '' && defined $tok && length($tok) >= 2 ) {
+		my $n = _sid_to_name($tok);
+		return $n if $n ne '';
+		if ( exists $hosts{$k} && defined $hosts{$k}{p10_intro} && $hosts{$k}{p10_intro} ne '' ) {
+			my $via = _sid_to_name( $hosts{$k}{p10_intro} );
+			return $via if $via ne '';
 		}
-		my $k = lc($joining_nick_plain);
-		if (exists $hosts{$k} && defined $hosts{$k}{server} && $hosts{$k}{server} ne '') {
+		if ( exists $hosts{$k} && defined $hosts{$k}{server} && $hosts{$k}{server} ne '' ) {
 			my $s = $hosts{$k}{server};
 			return $s if length($s) > 2 || $s =~ /\./;
-			if ($s =~ /^[A-Za-z0-9\[\]]{2}$/) {
-				my $n = _sid_to_name($s);
-				return $n if $n ne '';
+			if ( $s =~ /^[A-Za-z0-9\[\]]{2}$/ ) {
+				my $sn = _sid_to_name($s);
+				return $sn if $sn ne '';
+				return '[' . $s . ']';
+			}
+		}
+		return '[' . substr( $tok, 0, 2 ) . ']';
+	}
+
+	if ( $k ne '' ) {
+		if ( exists $hosts{$k} && defined $hosts{$k}{p10_intro} && $hosts{$k}{p10_intro} ne '' ) {
+			my $via = _sid_to_name( $hosts{$k}{p10_intro} );
+			return $via if $via ne '';
+		}
+		if ( exists $hosts{$k} && defined $hosts{$k}{server} && $hosts{$k}{server} ne '' ) {
+			my $s = $hosts{$k}{server};
+			return $s if length($s) > 2 || $s =~ /\./;
+			if ( $s =~ /^[A-Za-z0-9\[\]]{2}$/ ) {
+				my $sn = _sid_to_name($s);
+				return $sn if $sn ne '';
 				return '[' . $s . ']';
 			}
 		}
 	}
-	if (defined $p10_numeric_token && $p10_numeric_token =~ /^[A-Za-z0-9\[\]]{2,}/o) {
-		my $n = _sid_to_name($p10_numeric_token);
+
+	if ( defined $tok && length($tok) >= 2 ) {
+		my $n = _sid_to_name($tok);
 		return $n if $n ne '';
-		return '[' . substr($p10_numeric_token, 0, 2) . ']';
+		return '[' . substr( $tok, 0, 2 ) . ']';
 	}
 	return '(unknown)';
 }
@@ -717,8 +750,15 @@ sub network_info_snapshot {
 		my $can = _info_canonical_server_label($srv);
 		$by_srv{$can}++;
 	}
-	my @users_by_server = map { [ $_, $by_srv{$_} ] }
-		sort { $by_srv{$b} <=> $by_srv{$a} || $a cmp $b } keys %by_srv;
+	my %users_by_srv_merged;
+	$users_by_srv_merged{$_} = 0 for @servers;
+	for my $k (keys %by_srv) {
+		$users_by_srv_merged{$k} = $by_srv{$k};
+	}
+	my @users_by_server = map { [ $_, $users_by_srv_merged{$_} ] }
+		sort {
+			$users_by_srv_merged{$b} <=> $users_by_srv_merged{$a} || $a cmp $b
+		} keys %users_by_srv_merged;
 	my %chans_merged;
 	for my $srv (keys %info_chans_by_server) {
 		my $can = _info_canonical_server_label($srv);
@@ -731,12 +771,14 @@ sub network_info_snapshot {
 			(scalar keys %{ $chans_merged{$b} }) <=> (scalar keys %{ $chans_merged{$a} })
 			|| $a cmp $b
 		} keys %chans_merged;
+	my $def_srv = ( defined $servername && $servername ne '' ) ? $servername : '';
 	return {
-		servers          => \@servers,
-		users            => \@users,
-		chans            => \@chans,
-		users_by_server  => \@users_by_server,
-		chans_by_server  => \@chans_by_server,
+		servers           => \@servers,
+		users             => \@users,
+		chans             => \@chans,
+		users_by_server   => \@users_by_server,
+		chans_by_server   => \@chans_by_server,
+		defender_server   => $def_srv,
 	};
 }
 
@@ -1327,8 +1369,8 @@ sub poll {
 			}
 			next unless defined $acct && $acct ne '';
 			my $un = $nickhash{$utok};
-			if (defined $un && $un ne '') {
-				$hosts{lc($un)}{account} = $acct;
+			if ( defined $un && $un ne '' && exists $hosts{ lc($un) } ) {
+				$hosts{ lc($un) }{account} = $acct;
 				_mark_user_activity($un);
 			}
 		}
