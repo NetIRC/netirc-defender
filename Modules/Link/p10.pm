@@ -264,6 +264,7 @@ sub _info_note_channel {
 	my $lc = lc($chan_plain);
 	$info_channels_seen{$lc} = 1;
 	my $srv = _info_uplink_label($joining_nick_plain // '', $p10_numeric_token);
+	return if !defined $srv || $srv eq '' || $srv eq '(unknown)';
 	$info_chans_by_server{$srv}{$lc} = 1;
 }
 
@@ -650,7 +651,10 @@ sub ungline
 sub gethost
 {
 	my ($nick) = @_;
-	return $hosts{lc($nick)}{host};
+	return undef unless defined $nick && $nick ne '';
+	my $lc = lc($nick);
+	return undef unless exists $hosts{$lc};
+	return $hosts{$lc}{host};
 }
 
 sub client_link_info
@@ -741,10 +745,15 @@ sub network_info_snapshot {
 		$uniq_servers{$n} = 1;
 	}
 	my @servers = sort keys %uniq_servers;
-	my @users   = sort keys %hosts;
+	my @users = sort grep {
+		exists $hosts{$_}
+		&& ref($hosts{$_}) eq 'HASH'
+		&& defined $hosts{$_}{host}
+		&& $hosts{$_}{host} ne ''
+	} keys %hosts;
 	my @chans   = sort keys %info_channels_seen;
 	my %by_srv;
-	for my $ln (keys %hosts) {
+	for my $ln (@users) {
 		my $tok = $rnickhash{$ln};
 		my $srv = _info_uplink_label($ln, $tok);
 		my $can = _info_canonical_server_label($srv);
@@ -762,6 +771,7 @@ sub network_info_snapshot {
 	my %chans_merged;
 	for my $srv (keys %info_chans_by_server) {
 		my $can = _info_canonical_server_label($srv);
+		next if !defined $can || $can eq '' || $can eq '(unknown)';
 		for my $c (keys %{ $info_chans_by_server{$srv} }) {
 			$chans_merged{$can}{$c} = 1;
 		}
@@ -822,21 +832,24 @@ my $njtime = time+20;
 sub checkmodes
 {
 	my ($nick,$modes) = @_;
+	return unless defined $nick && $nick ne '';
+	my $lc = lc($nick);
+	return unless exists $hosts{$lc};
 	if ($modes =~ /^\+.*(o|A).*$/) 
 	{
-		$hosts{lc($nick)}{isoper} = 1;
+		$hosts{$lc}{isoper} = 1;
 	}
 	elsif ($modes =~ /^-.*(o|A).*$/)
 	{
-		$hosts{lc($nick)}{isoper} = 0;
+		$hosts{$lc}{isoper} = 0;
 	}
 	if ($modes =~ /^\+.*k.*$/)
 	{
-		$hosts{lc($nick)}{isservice} = 1;
+		$hosts{$lc}{isservice} = 1;
 	}
 	elsif ($modes =~ /^-.*k.*$/)
 	{
-		$hosts{lc($nick)}{isservice} = 0;
+		$hosts{$lc}{isservice} = 0;
 	}
 }
 
@@ -855,14 +868,19 @@ sub _modes_is_service {
 sub isoper
 {
 	my ($nick) = @_;
-	return ($hosts{lc($nick)}{isoper} == 1);
+	return 0 unless defined $nick && $nick ne '';
+	my $lc = lc($nick);
+	return 0 unless exists $hosts{$lc};
+	return (($hosts{$lc}{isoper} // 0) == 1);
 }
 
 sub isservice
 {
 	my ($nick) = @_;
 	return 0 unless defined $nick && $nick ne '';
-	return (($hosts{lc($nick)}{isservice} // 0) == 1);
+	my $lc = lc($nick);
+	return 0 unless exists $hosts{$lc};
+	return (($hosts{$lc}{isservice} // 0) == 1);
 }
 
 sub idle_timers {
@@ -1252,15 +1270,22 @@ sub poll {
 			foreach my $nicktok (@nicklist) 
 			{
 				my $bursttok = $nicktok;
+				$bursttok =~ s/^\s+|\s+$//g;
 				$bursttok =~ s/\s:%(.+?)$//;
 				$bursttok =~ s/\s:\^(.+?)$//;
 				my $bsuf = '';
 				if ($bursttok =~ s/:([^:]+)$//) {
 					$bsuf = $1;
 				}
-				$bursttok = substr($bursttok, 0, 5);
+				$bursttok =~ s/^://;
+				$bursttok =~ s/^[\@\+\%\~\&\*]+//;
+				if ($bursttok =~ /([A-Za-z0-9\[\]]{5})/) {
+					$bursttok = $1;
+				} else {
+					$bursttok = '';
+				}
 				my $chanpfx = ($bsuf =~ /o/i) ? '@' : ($bsuf =~ /v/i) ? '+' : ($bsuf =~ /h/i) ? '%' : '';
-				my $burstjoinnick = $nickhash{$bursttok} // "";
+				my $burstjoinnick = ($bursttok ne '') ? ($nickhash{$bursttok} // "") : "";
 				_info_note_channel($chan_plain_b, $burstjoinnick, $bursttok);
 				_uc_join($burstjoinnick, $chan_plain_b, $chanpfx) if $burstjoinnick ne '' && defined $chan_plain_b && $chan_plain_b ne '';
 				my $join_srv = ($burstjoinnick ne '') ? _join_part_server_label($burstjoinnick) : '';

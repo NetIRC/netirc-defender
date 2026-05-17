@@ -1,8 +1,44 @@
-# NetIRC Defender V3
+# NetIRC Defender V3 - P10 IRC Security Service (Perl)
 
-Modular IRC security service for **P10** (ircu-style) uplinks: DNSBL checks, flood controls, G-lines, channel enforcement, optional GeoIP (`ipinfo`), console **`whois`** / **`seen`** from the link cache (including **away** when the hub reports it on the link), and more. Written in Perl.
+[![License: GPL-2.0](https://img.shields.io/badge/License-GPL--2.0-blue.svg)](LICENSE)
+![Language: Perl](https://img.shields.io/badge/Language-Perl-39457E)
+![Link Protocol: P10](https://img.shields.io/badge/Link-P10-informational)
+![Platform: Linux](https://img.shields.io/badge/Platform-Linux-success)
 
-**Lineage:** the codebase shares roots with the public [key2peace/defender](https://github.com/key2peace/defender) project (Defender IRC service). You do **not** need a GitHub “Fork” of that repo to publish this tree: a **standalone repository** is fine. **NetIRC Defender V3** is this project’s name and P10-focused evolution. Keep the **GPL-2.0** license file and existing copyright headers in source files when you redistribute (see [License](#license)).
+NetIRC Defender V3 is a modular **IRC security service** for **P10 / ircu-style uplinks**.  
+It provides production-focused abuse controls for IRC networks: DNSBL checks, flood protection, G-line automation, channel policy enforcement, optional GeoIP lookups, and operator tooling (`info`, `status`, `whois`, `seen`) backed by link-side cache data.
+
+If you run or secure an IRC network, this project is designed as a practical **IRC defender bot / service** with low external dependencies and predictable operations.
+
+## Highlights
+
+- **P10-native architecture** for ircu-style server links.
+- **Modular scan pipeline** (`Modules/Scan/*`) with configurable policy order.
+- **Abuse mitigation toolkit**: DNSBL, nick flood, channel enforcement, regex akill, CGI:IRC detection.
+- **Operator-first control channel UX** with structured help, status, and live link insights.
+- **Perl core friendly** runtime (bundled config helpers, minimal CPAN friction).
+- **GPL-2.0 licensed** and straightforward to deploy on Linux servers.
+
+**Relevant search terms:** `irc security`, `irc defender`, `p10`, `ircu`, `dnsbl`, `gline`, `irc services`, `perl`.
+
+## Table of contents
+
+- [Requirements](#requirements)
+- [Support matrix](#support-matrix)
+- [New server: install Perl (VPS / bare metal)](#new-server-install-perl-vps--bare-metal)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Control channel & commands](#control-channel--commands)
+- [Troubleshooting](#troubleshooting)
+- [Project layout (high level)](#project-layout-high-level)
+- [Security](#security)
+- [License](#license)
+- [Contributing](#contributing)
+
+## Project lineage
+
+The codebase shares roots with the public [key2peace/defender](https://github.com/key2peace/defender) project (Defender IRC service). You do **not** need a GitHub fork of that repository to publish this tree: a standalone repository is fine.  
+**NetIRC Defender V3** is this project's P10-focused evolution. Keep the **GPL-2.0** license file and existing copyright headers in source files when redistributing (see [License](#license)).
 
 ## Requirements
 
@@ -10,6 +46,16 @@ Modular IRC security service for **P10** (ircu-style) uplinks: DNSBL checks, flo
 - Linux (or similar) is assumed for production; P10 link to your hub.
 - **Config parsing:** this tree bundles `Config::General` and `Tie::IxHash` under `Config/` and `Tie/` — you do not install those from CPAN.
 - **`dnsbl` module:** uses the same core **`Socket`** helpers (`gethostbyname` / `inet_ntoa`) for RBL DNS lookups — no **`Net::DNS`** or other CPAN DNS stack. Lists and replies are read from **`dnsbl.conf`** in your `datadir`. Use **`dnsbl.conf.example`** in the repository as a template (copy to `datadir/dnsbl.conf` and replace with zones you are allowed to query).
+
+## Support matrix
+
+| Component | Status |
+|---|---|
+| Link protocol | **P10 / ircu-style uplinks** |
+| Runtime | **Perl 5.10+** |
+| OS target | **Linux production** (Unix-like environments also possible) |
+| Dependency model | **Perl core first**, bundled config helpers |
+| Deployment mode | Foreground debug and daemon mode |
 
 ## New server: install Perl (VPS / bare metal)
 
@@ -157,6 +203,14 @@ To see the **exact** help string a module registers, use **`help <module>`** on 
 
 **Away / live WHOIS data:** away state in the P10 cache is accurate after relevant `A` lines have been seen while Defender is linked. Users already away before link-up can be stale; **whois** now asks IRCd live away (`301`) and **seen** can request live away for online users, so displayed state is corrected on demand. **whois** also asks for live idle (`317`) and account (`330`); if idle reply does not arrive within timeout, it reports `n/a (IRCd timeout)`.
 
+## Troubleshooting
+
+- **`(unknown)` in `info users` / `info chans`:** restart Defender after deploying parser/cache fixes so old runtime cache does not pollute new stats.
+- **No output from a module command:** verify the module is listed in `modules=` and check `help <module>` / `status <module>`.
+- **DNSBL not triggering:** confirm `datadir/dnsbl.conf` exists, zones are valid, and your network is allowed to query those RBL providers.
+- **Service not staying up:** use `./defender.sh status` and (optionally) cron with `checkD.sh` as watchdog.
+- **GeoIP / ipinfo issues:** validate `ipinfo_token` and timeout/rate settings in `defender.conf`.
+
 ## Project layout (high level)
 
 | Path | Role |
@@ -173,6 +227,14 @@ To see the **exact** help string a module registers, use **`help <module>`** on 
 | `deny_version.conf.example` | Template for the **version** module’s `deny_version.conf` in `datadir` |
 | `dnsbl.conf.example` | Template for **`dnsbl.conf`** (Config::General: RBL zones, `duration`, `reason`, `<reply>`) |
 | `regexp_akill.conf.example` | Template for **`regexp_akill.conf`** (tab: regex, reason); use only if **`regexp_akill`** is in `modules=` |
+
+## Security
+
+- Treat `defender.conf`, hub passwords, and API tokens as secrets; never commit them.
+- Keep Defender on trusted infrastructure and restrict shell access to operators.
+- Use least privilege for runtime accounts and filesystem permissions.
+- Apply changes in staging first when adjusting aggressive modules (`dnsbl`, `regexp_akill`, `killchan`, `gline`).
+- This tool is for authorized network administration only.
 
 ## License
 
