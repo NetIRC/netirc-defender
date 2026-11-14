@@ -99,6 +99,13 @@ Then continue with [Quick start](#quick-start) (clone, `defender.conf`, run).
    $EDITOR /path/to/your/deny_version.conf
    ```
 
+   Optional IP/host exemptions (skip G/K for listed clients) live in **`datadir/version_whitelist.conf`**:
+
+   ```bash
+   cp version_whitelist.conf.example /path/to/your/version_whitelist.conf
+   $EDITOR /path/to/your/version_whitelist.conf
+   ```
+
    If **`dnsbl`** is in `modules=`, create **`datadir/dnsbl.conf`** (Config::General; one block per RBL zone). You can start from the template:
 
    ```bash
@@ -149,7 +156,7 @@ See the top of `checkD.sh` for `CHECKD_LOG`, `CHECKD_DEBUG`, and `CHECKD_LOG_EVE
 
 - **`defender.conf`** — hub `server` / `port` / `password`, `linktype=p10`, service identity (`servername`, `sid`, …), `channel` (control channel for operator commands), `modules=…`, paths, thresholds. On connect, **`verbose`** + **`version`** `scan_user` are always run before other modules (so **`dnsbl`** does not delay “Signed on” or CTCP VERSION); on quit / join / part / kill / nick change, **`verbose`** runs before the rest so **`seen`** (disk) and other hooks do not delay “Signed off” and similar lines. Optional **`control_channel_line_delay_ms`** spaces consecutive **PRIVMSG** to the control channel and **`globops`** when sends are within ~1.5s; **unset means no delay** (older trees mistakenly reused **`ipinfo_line_delay_ms`** for that — it is not used by **`ipinfo`** here). Automatic profile switch is controlled by **`attack_mode_auto`**, **`attack_mode_enter_conn_per_min`**, **`attack_mode_hold_sec`**. **dnsbl** reads **`dnsbl_cache_ttl`**, **`dnsbl_query_timeout_sec`**, **`dnsbl_cb_trigger_conn_per_min`**, **`dnsbl_cb_trigger_timeouts_per_min`**, **`dnsbl_cb_cooldown_sec`**, **`dnsbl_backlog_skip_ttl_sec`** plus `attack_...` overrides. **ipinfo** reads **`ipinfo_token`**, **`ipinfo_cache_ttl_sec`**, **`ipinfo_burst_limit`**, **`ipinfo_burst_window_sec`**, **`ipinfo_http_timeout_sec`** (see `defender.conf.example`).
 - **`defender.conf` is not committed** (see `.gitignore`); use **`defender.conf.example`** as the template.
-- **Under `datadir`** (see `datadir=` in `defender.conf`), usually not committed: `dnsbl.conf`, `regexp_akill.conf`, `glines.conf`, `killchans.conf`, `deny_version.conf`, `defender_persistent_counters.v1`, `seen_state.sto` (from the **seen** module). **Beside `defender.pl`:** `defender.conf`, **`defender.pid`**, and (if `logto=Text`) the file at **`logpath`** — often the same folder as `datadir`, but paths are independent. Templates: **`defender.conf.example`** → **`defender.conf`** next to **`defender.pl`**; **`deny_version.conf.example`**, **`dnsbl.conf.example`**, **`regexp_akill.conf.example`** → **`datadir`** with the names above. A commented `cgiirc.conf` may live at the project root in this tree; the running service reads **`$datadir/cgiirc.conf`** (create or copy there if you use the **cgiirc** module). Optional: **`seen_max_entries`** in `defender.conf` (default 10000) limits last-seen records.
+- **Under `datadir`** (see `datadir=` in `defender.conf`), usually not committed: `dnsbl.conf`, `regexp_akill.conf`, `glines.conf`, `killchans.conf`, `deny_version.conf`, `version_whitelist.conf`, `defender_persistent_counters.v1`, `seen_state.sto` (from the **seen** module). **Beside `defender.pl`:** `defender.conf`, **`defender.pid`**, and (if `logto=Text`) the file at **`logpath`** — often the same folder as `datadir`, but paths are independent. Templates: **`defender.conf.example`** → **`defender.conf`** next to **`defender.pl`**; **`deny_version.conf.example`**, **`version_whitelist.conf.example`**, **`dnsbl.conf.example`**, **`regexp_akill.conf.example`** → **`datadir`** with the names above. A commented `cgiirc.conf` may live at the project root in this tree; the running service reads **`$datadir/cgiirc.conf`** (create or copy there if you use the **cgiirc** module). Optional: **`seen_max_entries`** in `defender.conf` (default 10000) limits last-seen records.
 
 ## Control channel & commands
 
@@ -186,7 +193,7 @@ Only modules **listed** in `defender.conf` are active. Names must match `Modules
 |--------|----------------|----------------------------------|
 | **conn_average** | Counts sign-ons per minute; if above `conn_average_max`, sends **GLOBOPS**; if `conn_average_mirror_console` is not `0`, repeats the warning on the control channel. Can auto-enable global attack mode and (optionally) force emergency G-lines while attack mode is active. | None (automatic). Use `status conn_average` if `stats` is defined. |
 | **dnsbl** | Checks new users against RBL zones from `dnsbl.conf` in `datadir`. | None (automatic). |
-| **version** | CTCP VERSION fingerprinting / `deny_version.conf` rules (when **version** is in `modules=`). G-line duration for `G` rules is fixed in code (86400s). Global outbound CTCP limiting is configurable via `version_ctcp_global_burst`, `version_ctcp_global_window_sec`, `version_ctcp_global_mute_sec` (and `attack_...` overrides while attack mode is active). | **`version ctcp-all`** — sends CTCP VERSION to `$*.net`; **oper**. Replies still filtered by `deny_version.conf`. |
+| **version** | CTCP VERSION fingerprinting / `deny_version.conf` rules (when **version** is in `modules=`). Optional IP/host exemptions in `version_whitelist.conf` skip G/K for listed clients. G-line duration for `G` rules is fixed in code (86400s). Global outbound CTCP limiting is configurable via `version_ctcp_global_burst`, `version_ctcp_global_window_sec`, `version_ctcp_global_mute_sec` (and `attack_...` overrides while attack mode is active). | **`version ctcp-all`** — sends CTCP VERSION to `$*.net`; **oper**. Replies still filtered by `deny_version.conf` (unless whitelisted). |
 | **regexp_akill** | On sign-on, matches `nick!ident@host` + realname against regexes; G-lines on match (~600s). **Off by default** — add **`regexp_akill`** to `modules=` and maintain `regexp_akill.conf` if you use it. | **`regexp_akill add <pattern> <reason>`**, **`regexp_akill del <pattern>`**, **`regexp_akill list`** — **oper**; file `regexp_akill.conf`. |
 | **flood** | Per-channel flood detection and temporary `+f` (and related) lock. | None (automatic). |
 | **nickflood** | Kills rapid nick changes (`nickflood_limit`). | None (automatic). |
@@ -225,6 +232,7 @@ To see the **exact** help string a module registers, use **`help <module>`** on 
 | `checkD.sh` | Cron watchdog only (auto restart after reboot/crash) |
 | `defender.conf.example` | Config template: copy to **`defender.conf`** in the **same directory as `defender.pl`** (not necessarily `datadir`; see `datadir=` for policy files) |
 | `deny_version.conf.example` | Template for the **version** module’s `deny_version.conf` in `datadir` |
+| `version_whitelist.conf.example` | Template for IP/host exemptions from `deny_version` G/K (`version_whitelist.conf` in `datadir`) |
 | `dnsbl.conf.example` | Template for **`dnsbl.conf`** (Config::General: RBL zones, `duration`, `reason`, `<reply>`) |
 | `regexp_akill.conf.example` | Template for **`regexp_akill.conf`** (tab: regex, reason); use only if **`regexp_akill`** is in `modules=` |
 

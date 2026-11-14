@@ -13,6 +13,8 @@
 # NOT match: no VERSION reply (e.g. irc_hide_version and no CTCP override), or a custom
 # VERSION string that never contains "HexChat" — combine with dnsbl, IRCd limits, and optionally
 # regexp_akill (if enabled in modules=).
+# To exempt specific IPs/hosts while keeping this rule, use version_whitelist.conf
+# (see version_whitelist.conf.example).
 HexChat.*	G	HexChat client not permitted on this network
 #
 # --- Optional: block only specific versions (place BEFORE HexChat.* so they match first) ---

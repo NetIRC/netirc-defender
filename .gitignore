@@ -14,6 +14,7 @@ nohup.out
 dnsbl.conf
 regexp_akill.conf
 deny_version.conf
+version_whitelist.conf
 glines.conf
 killchans.conf
 

@@ -34,12 +34,106 @@ my $iroffer = 0;
 
 my @deny_version_rows;
 my @version_rules;
+my @version_whitelist;    # [ { type => 'lit'|'re', value|qr, raw } ]
+my $version_wl_hits = 0;
 my @ctcp_out_times;
 my $ctcp_out_mute_until = 0;
 my $ctcp_out_sent = 0;
 my $ctcp_out_dropped = 0;
 
 use constant _DENY_VERSION_PATTERN_MAX => 1024;
+
+sub _load_version_whitelist {
+	@version_whitelist = ();
+	my $path = "$main::dir/version_whitelist.conf";
+	open my $fh, '<', $path or do {
+		print "[version] no version_whitelist.conf — deny_version applies to all hosts.\n";
+		return;
+	};
+	while (my $line = <$fh>) {
+		chomp $line;
+		$line =~ s/\r\z//;
+		next if $line =~ /^\s*$/ || $line =~ /^\s*#/;
+		$line =~ s/^\s+|\s+$//g;
+		next if $line eq '';
+		if ($line =~ /^re:(.+)$/s) {
+			my $pat = $1;
+			$pat =~ s/^\s+|\s+$//g;
+			next if $pat eq '';
+			my $qr = eval { qr/$pat/i };
+			if (!$qr) {
+				warn "[version] skip invalid whitelist regex: $pat — $@\n";
+				next;
+			}
+			push @version_whitelist, { type => 're', qr => $qr, raw => $line };
+			next;
+		}
+		# Literal IP / host / *@host / user@host
+		my $lit = $line;
+		$lit =~ s/^\*@//;
+		push @version_whitelist, { type => 'lit', value => lc($lit), raw => $line };
+	}
+	close $fh;
+	my $n = scalar @version_whitelist;
+	print "[version] loaded $n version_whitelist.conf entr" . ($n == 1 ? "y" : "ies") . ".\n";
+}
+
+sub _version_targets_for_nick {
+	my ($nick) = @_;
+	my %seen;
+	my @targets;
+	my $add = sub {
+		my ($v) = @_;
+		return unless defined $v && $v ne '';
+		my $k = lc $v;
+		return if $seen{$k}++;
+		push @targets, $k;
+	};
+	my $uh = '';
+	eval { $uh = main::gethost($nick) };
+	$uh = '' unless defined $uh;
+	$add->($uh);
+	if ($uh =~ /^([^@]*)@(.+)$/) {
+		$add->($2);
+		$add->($1 . '@' . $2);
+	}
+	if (defined &main::client_link_info) {
+		my $info = eval { main::client_link_info($nick) };
+		if ($info && ref($info) eq 'HASH') {
+			$add->($info->{client_ip}) if defined $info->{client_ip};
+			my $uh2 = $info->{userhost};
+			$add->($uh2) if defined $uh2;
+			if (defined $uh2 && $uh2 =~ /^[^@]*@(.+)$/) {
+				$add->($1);
+			}
+		}
+	}
+	return @targets;
+}
+
+# Returns 1 if nick's host/IP is on version_whitelist.conf (skips G/K from deny_version).
+sub _version_is_whitelisted {
+	my ($nick) = @_;
+	return 0 unless @version_whitelist;
+	return 0 unless defined $nick && $nick ne '';
+	my @targets = _version_targets_for_nick($nick);
+	return 0 unless @targets;
+	for my $ent (@version_whitelist) {
+		if ($ent->{type} eq 'lit') {
+			my $want = $ent->{value};
+			for my $t (@targets) {
+				return 1 if $t eq $want;
+			}
+		}
+		elsif ($ent->{type} eq 're') {
+			my $qr = $ent->{qr};
+			for my $t (@targets) {
+				return 1 if $t =~ $qr;
+			}
+		}
+	}
+	return 0;
+}
 
 # message.pl passes quotemeta() strings into scan hooks; undo for CTCP matching and display.
 sub _dsp {
@@ -49,7 +143,7 @@ sub _dsp {
 	return $s;
 }
 
-# Control-channel lines "Version reply for …" (deny_version / G-line still always runs).
+# Control-channel lines "Version reply for …" (deny_version G/K still run unless whitelisted).
 sub _version_reply_to_console {
 	my $v = $main::version_verbose;
 	if ( defined $v && $v ne '' ) {
@@ -177,6 +271,8 @@ sub stats {
 	main::message("CTCP VERSION dropped (rate):   \002$ctcp_out_dropped\002");
 	my $mute_left = ($ctcp_out_mute_until > time) ? ($ctcp_out_mute_until - time) : 0;
 	main::message("CTCP VERSION mute left (sec):  \002$mute_left\002");
+	main::message("Version whitelist entries:     \002" . (scalar @version_whitelist) . "\002");
+	main::message("Version whitelist hits (skip): \002$version_wl_hits\002");
 	main::message(" ");
 	main::message("\002Version Survey:\002");
 	main::message(" ");
@@ -314,14 +410,21 @@ sub _handle_version_ctcp {
 		$nulls++;
 	}
 
+	my $wl = _version_is_whitelisted($nick);
+
 	if ($main::OneWord) {
 		if ($notice =~ /^\001VERSION (\S+)\001/) {
 			my $litmus = $1;
 			if (($notice !~ /^\001VERSION Trillian\001/) && ($notice !~ /\@/) && ($notice !~ /WebTV/) && ($notice !~ /eMule/)) {
-				main::message("$nick has one-word version response ($litmus), glined.");
-				my $n = main::gethost($nick);
-				my (undef,$host) = split('@',$n);
-				main::gline('*@' . $host,86400,"Possible litmus trojan");
+				if ($wl) {
+					$version_wl_hits++;
+					main::message("$nick has one-word version response ($litmus), skipped (version whitelist).");
+				} else {
+					main::message("$nick has one-word version response ($litmus), glined.");
+					my $n = main::gethost($nick);
+					my (undef,$host) = split('@',$n);
+					main::gline('*@' . $host,86400,"Possible litmus trojan");
+				}
 			}
 		}
 	}
@@ -349,6 +452,11 @@ sub _handle_version_ctcp {
 		my ($qr, $action, $raison, $label) = @$ent;
 		next unless $notice =~ $qr;
 		my $captured = $1;
+		if ($wl) {
+			$version_wl_hits++;
+			main::message("$nick using $captured matches version blacklist entry ($label), skipped (version whitelist).");
+			return;
+		}
 		if ($action eq "G") {
 			main::gline(
 				main::gethost($nick),
@@ -406,8 +514,8 @@ sub handle_privmsg
 
 sub cmd_help {
 	main::_cmsg(
-		"\002[VERSION]\002 \002version ctcp-all\002 on the control channel sends CTCP VERSION to \002\$*.net\002; blacklist rules in \002deny_version.conf\002 still apply to replies.",
-		"\00305\002[VERSION]\017 \00302version ctcp-all\017 \00306— CTCP VERSION to \00302\002\$*.net\017\00306; \00302deny_version.conf\017\00306 rules apply.\017"
+		"\002[VERSION]\002 \002version ctcp-all\002 — CTCP VERSION to \002\$*.net\002. Blacklist: \002deny_version.conf\002. IP/host exemptions: \002version_whitelist.conf\002 (one IP or host per line; \002re:\002 for regex).",
+		"\00305\002[VERSION]\017 \00302version ctcp-all\017 \00306— CTCP to \00302\002\$*.net\017\00306. Blacklist \00302deny_version.conf\017\00306; whitelist \00302version_whitelist.conf\017\00306.\017"
 	);
 }
 
@@ -420,11 +528,15 @@ sub init {
         main::provides("version");
 
 	@deny_version_rows = ();
+	@version_whitelist = ();
+	$version_wl_hits = 0;
 	@ctcp_out_times = ();
 	$ctcp_out_mute_until = 0;
 	$ctcp_out_sent = 0;
 	$ctcp_out_dropped = 0;
 	my %seen_pattern;
+
+	_load_version_whitelist();
 
 	open(BL, "<$main::dir/deny_version.conf") or print "Missing deny_version.conf file!\n";
 	

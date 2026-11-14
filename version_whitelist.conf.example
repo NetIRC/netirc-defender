@@ -1,0 +1,22 @@
+# version_whitelist.conf — IP/host exemptions for the VERSION module
+#
+# Copy to datadir as version_whitelist.conf (same directory as deny_version.conf).
+# Reloaded on: start, or "<botnick> rehash".
+#
+# One entry per line. Blank lines and # comments are ignored.
+#
+# Literal forms (recommended for a friend's IP):
+#   203.0.113.10
+#   2001:db8::42
+#   *@203.0.113.10
+#   friend.example.net
+#
+# Match is against the client's host, cloaked host if present in cache, and
+# real client IP from the P10 N-line when available. Matching is case-insensitive.
+#
+# Advanced: Perl regex (prefix with re:)
+#   re:\.trusted-isp\.example$
+#   re:^203\.0\.113\.
+#
+# Example (replace with the real IP — do not commit secrets/IPs if the repo is public):
+# 203.0.113.10
